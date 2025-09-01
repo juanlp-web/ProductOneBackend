@@ -229,6 +229,55 @@ router.post('/', protect, async (req, res) => {
       }
     }
 
+    // Calcular total y agregar productName a cada item
+    for (let i = 0; i < itemsToCreate.length; i++) {
+      const product = await Product.findById(itemsToCreate[i].product);
+      if (product) {
+        itemsToCreate[i].productName = product.name;
+        itemsToCreate[i].total = itemsToCreate[i].quantity * itemsToCreate[i].price;
+        
+        // Asegurar que el campo unit esté presente
+        if (!itemsToCreate[i].unit) {
+          itemsToCreate[i].unit = 'unidad'; // valor por defecto
+        }
+        
+        console.log(`Item ${i}:`, {
+          productName: itemsToCreate[i].productName,
+          quantity: itemsToCreate[i].quantity,
+          unit: itemsToCreate[i].unit,
+          price: itemsToCreate[i].price,
+          total: itemsToCreate[i].total
+        });
+      } else {
+        console.error(`Producto no encontrado para item ${i}:`, itemsToCreate[i].product);
+      }
+    }
+
+    console.log('Items finales:', JSON.stringify(itemsToCreate, null, 2));
+
+    // Validar que todos los items tengan los campos requeridos
+    for (let i = 0; i < itemsToCreate.length; i++) {
+      const item = itemsToCreate[i];
+      if (!item.productName) {
+        return res.status(400).json({
+          success: false,
+          message: `El nombre del producto es requerido para el item ${i + 1}`
+        });
+      }
+      if (!item.total || item.total <= 0) {
+        return res.status(400).json({
+          success: false,
+          message: `El total es requerido y debe ser mayor a 0 para el item ${i + 1}`
+        });
+      }
+      if (!item.unit) {
+        return res.status(400).json({
+          success: false,
+          message: `La unidad de medida es requerida para el item ${i + 1}`
+        });
+      }
+    }
+
     // Crear la compra
     const purchase = new Purchase({
       supplier,
