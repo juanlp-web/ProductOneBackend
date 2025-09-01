@@ -55,6 +55,11 @@ const productSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  managesBatches: {
+    type: Boolean,
+    default: false,
+    description: 'Indica si el producto maneja lotes de producción'
+  },
   images: [String],
   tags: [String]
 }, {

@@ -3,6 +3,7 @@ import { protect, manager } from '../middleware/auth.js';
 import Purchase from '../models/Purchase.js';
 import Supplier from '../models/Supplier.js';
 import Product from '../models/Product.js';
+import Batch from '../models/Batch.js';
 
 const router = express.Router();
 
@@ -58,6 +59,7 @@ router.get('/', protect, async (req, res) => {
     const purchases = await Purchase.find(filters)
       .populate('supplier', 'name category status')
       .populate('items.product', 'name sku category')
+      .populate('items.batch', 'batchNumber expirationDate currentStock')
       .sort({ orderDate: -1 })
       .skip(skip)
       .limit(parseInt(limit));
@@ -92,7 +94,8 @@ router.get('/:id', protect, async (req, res) => {
   try {
     const purchase = await Purchase.findById(req.params.id)
       .populate('supplier', 'name category status contactName contactPhone')
-      .populate('items.product', 'name sku category unit stock');
+      .populate('items.product', 'name sku category unit stock')
+      .populate('items.batch', 'batchNumber expirationDate currentStock notes');
 
     if (!purchase) {
       return res.status(404).json({ 
@@ -147,37 +150,89 @@ router.post('/', protect, async (req, res) => {
       });
     }
 
-    // Validar y calcular totales de items
-    let total = 0;
-    const validatedItems = [];
+    // Validar y procesar lotes
+    const itemsToCreate = [];
+    const batchesToCreate = [];
 
     for (const item of items) {
       const product = await Product.findById(item.product);
       if (!product) {
         return res.status(400).json({
           success: false,
-          message: `Producto ${item.productName || item.product} no encontrado`
+          message: `Producto ${item.product} no encontrado`
         });
       }
 
-      const itemTotal = item.quantity * item.price;
-      total += itemTotal;
+      if (product.managesBatches) {
+        if (item.batchType === 'new') {
+          // Crear nuevo lote
+          if (!item.batchData || !item.batchData.batchNumber || !item.batchData.expirationDate) {
+            return res.status(400).json({
+              success: false,
+              message: `Para el producto ${product.name} se requiere número de lote y fecha de vencimiento`
+            });
+          }
 
-      validatedItems.push({
-        product: item.product,
-        productName: product.name,
-        quantity: item.quantity,
-        unit: item.unit,
-        price: item.price,
-        total: itemTotal
-      });
+          const newBatch = new Batch({
+            product: item.product,
+            productName: product.name,
+            batchNumber: item.batchData.batchNumber,
+            expirationDate: item.batchData.expirationDate,
+            units: item.batchData.units || item.quantity,
+            stock: 0,
+            isActive: true
+          });
+
+          batchesToCreate.push(newBatch);
+          itemsToCreate.push({
+            ...item,
+            batch: newBatch._id,
+            batchType: 'new'
+          });
+        } else if (item.batchType === 'existing' && item.batch) {
+          // Usar lote existente
+          const existingBatch = await Batch.findById(item.batch);
+          if (!existingBatch) {
+            return res.status(400).json({
+              success: false,
+              message: `Lote ${item.batch} no encontrado`
+            });
+          }
+          itemsToCreate.push(item);
+        } else {
+          return res.status(400).json({
+            success: false,
+            message: `Para el producto ${product.name} se debe especificar un lote`
+          });
+        }
+      } else {
+        // Producto sin manejo de lotes
+        itemsToCreate.push(item);
+      }
+    }
+
+    // Crear lotes si es necesario
+    if (batchesToCreate.length > 0) {
+      const createdBatches = await Batch.insertMany(batchesToCreate);
+      
+      // Actualizar los IDs de los lotes en los items validados
+      for (let i = 0; i < itemsToCreate.length; i++) {
+        if (itemsToCreate[i].batchType === 'new') {
+          const createdBatch = createdBatches.find(b => 
+            b.batchNumber === items[i].batchData.batchNumber
+          );
+          if (createdBatch) {
+            itemsToCreate[i].batch = createdBatch._id;
+          }
+        }
+      }
     }
 
     // Crear la compra
     const purchase = new Purchase({
       supplier,
       supplierName: supplierDoc.name,
-      items: validatedItems,
+      items: itemsToCreate,
       total,
       paymentMethod,
       expectedDelivery,
@@ -188,33 +243,59 @@ router.post('/', protect, async (req, res) => {
 
     await purchase.save();
 
-    // Si se marca como recibida al crear, actualizar stock inmediatamente
-    if (status === 'recibida') {
-      purchase.actualDelivery = new Date();
-      
-      // Actualizar stock de todos los productos
-      for (const item of validatedItems) {
-        try {
-          await Product.findByIdAndUpdate(
-            item.product,
-            { $inc: { stock: item.quantity } },
-            { new: true }
-          );
-          console.log(`Stock actualizado para producto ${item.product}: +${item.quantity}`);
-        } catch (error) {
-          console.error(`Error al actualizar stock del producto ${item.product}:`, error);
+    // Si la compra está recibida, actualizar stock
+    if (purchase.status === 'recibida') {
+      for (const item of itemsToCreate) {
+        const product = await Product.findById(item.product);
+        if (!product) continue;
+
+        // Actualizar stock del producto
+        const updatedProduct = await Product.findByIdAndUpdate(
+          item.product,
+          { $inc: { stock: item.quantity } },
+          { new: true }
+        );
+
+        // Si el item tiene un lote asociado, actualizar el stock del lote
+        if (item.batch) {
+          try {
+            const updatedBatch = await Batch.findByIdAndUpdate(
+              item.batch,
+              { $inc: { stock: item.quantity } },
+              { new: true }
+            );
+          } catch (error) {
+            // Error al actualizar stock del lote
+          }
+        }
+
+        // Si el item tiene datos de lote nuevo, actualizar el stock del lote creado
+        if (item.batchType === 'new' && item.batchData) {
+          try {
+            // Buscar el lote recién creado por número de lote
+            const batch = await Batch.findOne({ 
+              batchNumber: item.batchData.batchNumber,
+              product: item.product 
+            });
+            
+            if (batch) {
+              await Batch.findByIdAndUpdate(
+                batch._id,
+                { 
+                  $inc: { stock: item.quantity },
+                  $set: { initialStock: item.quantity }
+                }
+              );
+            }
+          } catch (error) {
+            // Error al actualizar stock del lote nuevo
+          }
         }
       }
-      
-      await purchase.save();
     }
-
-    // Actualizar estadísticas del proveedor
-    await supplierDoc.updateStats(total);
 
     res.status(201).json({
       success: true,
-      message: 'Compra creada exitosamente',
       data: purchase
     });
   } catch (error) {
@@ -360,9 +441,43 @@ router.patch('/:id/status', protect, async (req, res) => {
             { $inc: { stock: item.quantity } },
             { new: true }
           );
-          console.log(`Stock actualizado para producto ${item.product}: +${item.quantity}`);
+
+          // Si el item tiene un lote asociado, actualizar el stock del lote
+          if (item.batch) {
+            try {
+              const updatedBatch = await Batch.findByIdAndUpdate(
+                item.batch,
+                { $inc: { currentStock: item.quantity } },
+                { new: true }
+              );
+            } catch (error) {
+              // No fallar si falla la actualización del lote
+            }
+          }
+
+          // Si el item tiene datos de lote nuevo, crear el lote
+          if (item.batchType === 'new' && item.batchData) {
+            try {
+              const newBatch = new Batch({
+                product: item.product,
+                productName: item.productName,
+                quantity: item.quantity,
+                unit: item.unit,
+                batchNumber: item.batchData.batchNumber,
+                expirationDate: item.batchData.expirationDate,
+                notes: item.batchData.notes || '',
+                cost: item.price,
+                createdBy: req.user._id,
+                currentStock: item.quantity,
+                initialStock: item.quantity
+              });
+              
+              await newBatch.save();
+            } catch (error) {
+              // No fallar si falla la creación del lote
+            }
+          }
         } catch (error) {
-          console.error(`Error al actualizar stock del producto ${item.product}:`, error);
           // Continuar con otros productos aunque falle uno
         }
       }
@@ -378,9 +493,7 @@ router.patch('/:id/status', protect, async (req, res) => {
             { $inc: { stock: -item.quantity } },
             { new: true }
           );
-          console.log(`Stock revertido para producto ${item.product}: -${item.quantity}`);
         } catch (error) {
-          console.error(`Error al revertir stock del producto ${item.product}:`, error);
           // Continuar con otros productos aunque falle uno
         }
       }
@@ -561,7 +674,22 @@ router.post('/:id/receive', protect, async (req, res) => {
           newStock: updatedProduct.stock
         });
         
-        console.log(`Stock actualizado para ${item.productName}: ${updatedProduct.stock - item.quantity} → ${updatedProduct.stock}`);
+
+        // Si el item tiene un lote asociado, actualizar el stock del lote
+        if (item.batch) {
+          try {
+            const updatedBatch = await Batch.findByIdAndUpdate(
+              item.batch,
+              { $inc: { currentStock: item.quantity } },
+              { new: true }
+            );
+          } catch (error) {
+            // No fallar la recepción si falla la actualización del lote
+          }
+        }
+
+        // NOTA: Los lotes nuevos ya se crearon cuando se cambió el estado a "recibida"
+        // No es necesario crearlos aquí de nuevo
       } catch (error) {
         console.error(`Error al actualizar stock del producto ${item.product}:`, error);
         return res.status(500).json({

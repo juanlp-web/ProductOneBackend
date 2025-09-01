@@ -8,9 +8,12 @@ import productRoutes from './routes/products.js';
 import clientRoutes from './routes/clients.js';
 import supplierRoutes from './routes/suppliers.js';
 import recipeRoutes from './routes/recipes.js';
+import batchRoutes from './routes/batches.js';
 import inventoryRoutes from './routes/inventory.js';
 import salesRoutes from './routes/sales.js';
 import purchaseRoutes from './routes/purchases.js';
+import dashboardRoutes from './routes/dashboard.js';
+import profileRoutes from './routes/profile.js';
 
 // Cargar variables de entorno
 dotenv.config();
@@ -38,9 +41,12 @@ app.use('/api/products', productRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/suppliers', supplierRoutes);
 app.use('/api/recipes', recipeRoutes);
+app.use('/api/batches', batchRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/sales', salesRoutes);
 app.use('/api/purchases', purchaseRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/profile', profileRoutes);
 
 // Ruta de prueba
 app.get('/', (req, res) => {
@@ -54,6 +60,7 @@ app.get('/', (req, res) => {
       clients: '/api/clients',
       suppliers: '/api/suppliers',
       recipes: '/api/recipes',
+      batches: '/api/batches',
       inventory: '/api/inventory',
       sales: '/api/sales',
       purchases: '/api/purchases'
@@ -77,6 +84,7 @@ app.use('*', (req, res) => {
   res.status(404).json({ message: 'Ruta no encontrada' });
 });
 
+// Iniciar servidor
 app.listen(PORT, () => {
   console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
   console.log(`📱 Frontend: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);

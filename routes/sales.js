@@ -1,6 +1,7 @@
 import express from 'express';
 import Sale from '../models/Sale.js';
 import Product from '../models/Product.js';
+import Batch from '../models/Batch.js';
 import { protect, manager } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -32,6 +33,7 @@ router.get('/', protect, async (req, res) => {
     const sales = await Sale.find(query)
       .populate('client', 'name email')
       .populate('items.product', 'name sku')
+      .populate('items.batch', 'batchNumber status currentStock')
       .populate('createdBy', 'name')
       .limit(limit * 1)
       .skip((page - 1) * limit)
@@ -59,6 +61,7 @@ router.get('/:id', protect, async (req, res) => {
     const sale = await Sale.findById(req.params.id)
       .populate('client', 'name email phone address')
       .populate('items.product', 'name sku price cost')
+      .populate('items.batch', 'batchNumber status currentStock expirationDate')
       .populate('createdBy', 'name');
     
     if (sale) {
@@ -89,10 +92,45 @@ router.post('/', protect, manager, async (req, res) => {
         return res.status(400).json({ message: `Producto ${item.product} no encontrado` });
       }
       
-      if (product.stock < item.quantity) {
-        return res.status(400).json({ 
-          message: `Stock insuficiente para ${product.name}. Disponible: ${product.stock}` 
+      // Si se especifica un lote, validar y consumir stock del lote
+      if (item.batch) {
+        const batch = await Batch.findById(item.batch);
+        if (!batch) {
+          return res.status(400).json({ message: `Lote ${item.batch} no encontrado` });
+        }
+        
+        if (batch.product.toString() !== item.product) {
+          return res.status(400).json({ message: `El lote ${batch.batchNumber} no corresponde al producto ${product.name}` });
+        }
+        
+        if (batch.currentStock < item.quantity) {
+          return res.status(400).json({ 
+            message: `Stock insuficiente en lote #${batch.batchNumber} para ${product.name}. Disponible: ${batch.currentStock} ${batch.unit}` 
+          });
+        }
+        
+        if (batch.status !== 'activo') {
+          return res.status(400).json({ 
+            message: `El lote #${batch.batchNumber} no está activo (estado: ${batch.status})` 
+          });
+        }
+        
+        // Consumir stock del lote
+        await Batch.findByIdAndUpdate(item.batch, {
+          $inc: { currentStock: -item.quantity }
         });
+        
+        // Actualizar estado del lote si se agota
+        if (batch.currentStock - item.quantity === 0) {
+          await Batch.findByIdAndUpdate(item.batch, { status: 'agotado' });
+        }
+      } else {
+        // Validación tradicional de stock del producto
+        if (product.stock < item.quantity) {
+          return res.status(400).json({ 
+            message: `Stock insuficiente para ${product.name}. Disponible: ${product.stock}` 
+          });
+        }
       }
       
       const itemTotal = (item.unitPrice - (item.discount || 0)) * item.quantity;
@@ -103,7 +141,8 @@ router.post('/', protect, manager, async (req, res) => {
         total: itemTotal
       });
       
-      // Actualizar stock
+      // SIEMPRE actualizar stock del producto principal
+      // El lote es solo una subdivisión del inventario total
       await Product.findByIdAndUpdate(item.product, {
         $inc: { stock: -item.quantity }
       });
@@ -130,6 +169,7 @@ router.post('/', protect, manager, async (req, res) => {
     const populatedSale = await Sale.findById(sale._id)
       .populate('client', 'name email')
       .populate('items.product', 'name sku')
+      .populate('items.batch', 'batchNumber status currentStock')
       .populate('createdBy', 'name');
     
     res.status(201).json(populatedSale);

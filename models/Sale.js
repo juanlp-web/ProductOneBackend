@@ -36,6 +36,11 @@ const saleSchema = new mongoose.Schema({
     total: {
       type: Number,
       required: true
+    },
+    batch: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Batch',
+      required: false
     }
   }],
   subtotal: {

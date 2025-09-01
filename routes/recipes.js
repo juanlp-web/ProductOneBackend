@@ -1,6 +1,7 @@
 import express from 'express';
 import Recipe from '../models/Recipe.js';
 import Product from '../models/Product.js';
+import Batch from '../models/Batch.js';
 import { protect, manager } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -268,7 +269,7 @@ router.put('/:id/status', protect, manager, async (req, res) => {
     const oldStatus = recipe.status;
     const newStatus = status;
     
-    // Si el estado anterior era "completada" y el nuevo no lo es, disminuir el stock
+    // Si el estado anterior era "completada" y el nuevo no lo es, disminuir el stock y eliminar lotes
     if (oldStatus === 'completada' && newStatus !== 'completada') {
       if (!recipe.productToProduce) {
         return res.status(400).json({ message: 'La receta no tiene un producto asociado para actualizar el stock' });
@@ -279,7 +280,7 @@ router.put('/:id/status', protect, manager, async (req, res) => {
         return res.status(404).json({ message: 'Producto no encontrado' });
       }
 
-      const quantityToDecrease = recipe.servings || 1;
+      const quantityToDecrease = recipe.batchInfo?.quantity || recipe.servings || 1;
 
       // Verificar que hay suficiente stock para disminuir
       if (product.stock < quantityToDecrease) {
@@ -298,6 +299,22 @@ router.put('/:id/status', protect, manager, async (req, res) => {
         });
       }
 
+      // Buscar y eliminar lotes asociados a esta receta
+      const batchesToRemove = await Batch.find({
+        recipe: recipe._id,
+        isActive: true
+      });
+
+      let batchesRemoved = [];
+      for (const batch of batchesToRemove) {
+        batch.isActive = false;
+        await batch.save();
+        batchesRemoved.push({
+          batchNumber: batch.batchNumber,
+          quantity: batch.currentStock
+        });
+      }
+
       // Disminuir stock del producto producido
       product.stock -= quantityToDecrease;
       await product.save();
@@ -307,7 +324,7 @@ router.put('/:id/status', protect, manager, async (req, res) => {
       await recipe.save();
 
       return res.json({
-        message: `Receta cambiada a ${newStatus}. Stock del producto ${product.name} disminuido en ${quantityToDecrease} unidad(es). Ingredientes restaurados exitosamente.`,
+        message: `Receta cambiada a ${newStatus}. Stock del producto ${product.name} disminuido en ${quantityToDecrease} unidad(es). Lotes eliminados e ingredientes restaurados exitosamente.`,
         recipe: recipe,
         stockChange: {
           productId: product._id,
@@ -316,14 +333,22 @@ router.put('/:id/status', protect, manager, async (req, res) => {
           newStock: product.stock,
           change: -quantityToDecrease
         },
-        ingredientsRestored: restoredIngredients
+        ingredientsRestored: restoredIngredients,
+        batchesRemoved: batchesRemoved
       });
     }
     
-    // Si el nuevo estado es "completada", aumentar el stock (lógica existente)
+    // Si el nuevo estado es "completada", crear lote y aumentar el stock
     if (newStatus === 'completada') {
       if (!recipe.productToProduce) {
         return res.status(400).json({ message: 'La receta no tiene un producto asociado para actualizar el stock' });
+      }
+
+      // Verificar que la receta tenga información de lote
+      if (!recipe.batchInfo || !recipe.batchInfo.expirationDate || !recipe.batchInfo.quantity) {
+        return res.status(400).json({ 
+          message: 'La receta debe tener información de lote (fecha de vencimiento y cantidad) para ser completada' 
+        });
       }
 
       // Primero verificar que haya stock suficiente para todos los ingredientes
@@ -336,14 +361,33 @@ router.put('/:id/status', protect, manager, async (req, res) => {
         });
       }
 
-      // Aumentar stock del producto producido
+      // Obtener el producto a producir
       const product = await Product.findById(recipe.productToProduce._id);
       if (!product) {
         return res.status(404).json({ message: 'Producto no encontrado' });
       }
 
-      const quantityToIncrease = recipe.servings || 1;
-      product.stock += quantityToIncrease;
+      // Crear el lote
+      const batchData = {
+        product: product._id,
+        productName: product.name,
+        quantity: recipe.batchInfo.quantity,
+        unit: recipe.batchInfo.unit,
+        productionDate: recipe.batchInfo.productionDate || new Date(),
+        expirationDate: recipe.batchInfo.expirationDate,
+        initialStock: recipe.batchInfo.quantity,
+        currentStock: recipe.batchInfo.quantity,
+        cost: recipe.cost || 0,
+        recipe: recipe._id,
+        recipeName: recipe.name,
+        notes: `Lote creado automáticamente al completar receta: ${recipe.name}`,
+        createdBy: req.user._id
+      };
+
+      const batch = await Batch.create(batchData);
+
+      // Aumentar stock del producto producido
+      product.stock += recipe.batchInfo.quantity;
       await product.save();
 
       // Actualizar estado de la receta
@@ -351,14 +395,15 @@ router.put('/:id/status', protect, manager, async (req, res) => {
       await recipe.save();
 
       return res.json({
-        message: `Receta marcada como completada. Stock del producto ${product.name} aumentado en ${quantityToIncrease} unidad(es). Ingredientes consumidos exitosamente.`,
+        message: `Receta marcada como completada. Lote ${batch.batchNumber} creado exitosamente. Stock del producto ${product.name} aumentado en ${recipe.batchInfo.quantity} ${recipe.batchInfo.unit}. Ingredientes consumidos exitosamente.`,
         recipe: recipe,
+        batch: batch,
         stockChange: {
           productId: product._id,
           productName: product.name,
-          oldStock: product.stock - quantityToIncrease,
+          oldStock: product.stock - recipe.batchInfo.quantity,
           newStock: product.stock,
-          change: quantityToIncrease
+          change: recipe.batchInfo.quantity
         },
         ingredientsConsumed: consumedIngredients
       });

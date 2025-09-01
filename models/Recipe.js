@@ -46,6 +46,29 @@ const recipeSchema = new mongoose.Schema({
     ref: 'Product',
     required: [true, 'El producto a producir es requerido']
   },
+  batchInfo: {
+    batchNumber: {
+      type: String,
+      trim: true
+    },
+    productionDate: {
+      type: Date,
+      default: Date.now
+    },
+    expirationDate: {
+      type: Date,
+      required: [true, 'La fecha de vencimiento es requerida']
+    },
+    quantity: {
+      type: Number,
+      required: [true, 'La cantidad a producir es requerida'],
+      min: [1, 'La cantidad debe ser mayor a 0']
+    },
+    unit: {
+      type: String,
+      required: [true, 'La unidad de medida es requerida']
+    }
+  },
   ingredients: [{
     product: {
       type: mongoose.Schema.Types.ObjectId,

@@ -29,6 +29,21 @@ const purchaseItemSchema = new mongoose.Schema({
     type: Number,
     required: [true, 'El total es requerido'],
     min: [0, 'El total no puede ser negativo']
+  },
+  batch: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Batch',
+    required: false
+  },
+  batchType: {
+    type: String,
+    enum: ['existing', 'new'],
+    required: false
+  },
+  batchData: {
+    batchNumber: String,
+    expirationDate: Date,
+    notes: String
   }
 });
 
@@ -98,6 +113,7 @@ purchaseSchema.index({ supplier: 1 });
 purchaseSchema.index({ status: 1 });
 purchaseSchema.index({ orderDate: -1 });
 purchaseSchema.index({ category: 1 });
+purchaseSchema.index({ 'items.batch': 1 });
 purchaseSchema.index({ isActive: 1 });
 
 // Virtual para calcular el total automáticamente

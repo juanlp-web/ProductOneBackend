@@ -13,7 +13,7 @@ const connectDB = async () => {
 
     console.log(`✅ MongoDB Atlas conectado: ${conn.connection.host}`);
     console.log(`📊 Base de datos: ${conn.connection.name}`);
-    
+
     // Manejar eventos de conexión
     mongoose.connection.on('error', (err) => {
       console.error('❌ Error de conexión MongoDB:', err);
@@ -37,5 +37,22 @@ const connectDB = async () => {
     process.exit(1);
   }
 };
+
+// Manejar desconexión
+mongoose.connection.on('disconnected', () => {
+  // Base de datos desconectada
+});
+
+// Manejar cierre de la aplicación
+process.on('SIGINT', async () => {
+  await mongoose.connection.close();
+  process.exit(0);
+});
+
+// Manejar errores de conexión
+mongoose.connection.on('error', (err) => {
+  // Error en la conexión
+  process.exit(1);
+});
 
 export default connectDB;
