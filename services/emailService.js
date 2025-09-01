@@ -43,9 +43,9 @@ export const sendPasswordResetEmail = async (email, resetToken, resetUrl) => {
     console.log('✅ Conexión SMTP verificada');
     
     const mailOptions = {
-      from: '"Innovadom - Sistema de Gestión" <juancarlos@innovadom.net>',
+      from: '"ProductOneX - Sistema de Gestión" <juancarlos@innovadom.net>',
       to: email,
-      subject: 'Recuperación de Contraseña - Innovadom',
+             subject: 'Recuperación de Contraseña - ProductOneX',
       html: `
         <!DOCTYPE html>
         <html lang="es">
@@ -255,16 +255,16 @@ export const sendPasswordResetEmail = async (email, resetToken, resetUrl) => {
         <body>
           <div class="container">
             <div class="header">
-              <div class="logo">
-                <h1>🔐 Innovadom</h1>
-                <p>Sistema de Gestión</p>
-              </div>
+                             <div class="logo">
+                 <h1>🔐 ProductOneX</h1>
+                 <p>Sistema de Gestión</p>
+               </div>
             </div>
             
             <div class="content">
               <h2>Recuperación de Contraseña</h2>
               <p>Hola,</p>
-              <p>Has solicitado restablecer tu contraseña en el sistema Innovadom. Para continuar con el proceso, haz clic en el botón de abajo:</p>
+                             <p>Has solicitado restablecer tu contraseña en el sistema ProductOneX. Para continuar con el proceso, haz clic en el botón de abajo:</p>
               
               <div style="text-align: center;">
                 <a href="${resetUrl}" class="button">
@@ -286,30 +286,30 @@ export const sendPasswordResetEmail = async (email, resetToken, resetUrl) => {
                 </ul>
               </div>
               
-              <p>Si tienes alguna pregunta, no dudes en contactar al equipo de soporte.</p>
-            </div>
-            
-            <div class="footer">
-              <p>© 2024 Innovadom. Todos los derechos reservados.</p>
-              <p>Este es un correo automático, por favor no respondas a este mensaje.</p>
-            </div>
+                             <p>Si tienes alguna pregunta, no dudes en contactar al equipo de soporte.</p>
+             </div>
+             
+             <div class="footer">
+               <p>© 2025 ProductOneX. Todos los derechos reservados.</p>
+               <p>Este es un correo automático, por favor no respondas a este mensaje.</p>
+             </div>
           </div>
         </body>
         </html>
       `,
       text: `
-        Recuperación de Contraseña - Innovadom
-        
-        Has solicitado restablecer tu contraseña en el sistema Innovadom.
-        
-        Para continuar con el proceso, visita el siguiente enlace:
-        ${resetUrl}
-        
-        Este enlace expirará en 1 hora.
-        
-        Si no solicitaste este cambio, puedes ignorar este correo.
-        
-        © 2024 Innovadom. Todos los derechos reservados.
+                 Recuperación de Contraseña - ProductOneX
+         
+         Has solicitado restablecer tu contraseña en el sistema ProductOneX.
+         
+         Para continuar con el proceso, visita el siguiente enlace:
+         ${resetUrl}
+         
+         Este enlace expirará en 1 hora.
+         
+         Si no solicitaste este cambio, puedes ignorar este correo.
+         
+         © 2025 ProductOneX. Todos los derechos reservados.
       `
     };
 
@@ -347,9 +347,9 @@ export const sendPasswordChangedEmail = async (email, userName) => {
     const transporter = createTransporter();
     
     const mailOptions = {
-      from: '"Innovadom - Sistema de Gestión" <juancarlos@innovadom.net>',
+      from: '"ProductOneX - Sistema de Gestión" <juancarlos@innovadom.net>',
       to: email,
-      subject: 'Contraseña Cambiada - Innovadom',
+      subject: 'Contraseña Cambiada - ProductOneX',
       html: `
         <!DOCTYPE html>
         <html lang="es">
@@ -411,7 +411,7 @@ export const sendPasswordChangedEmail = async (email, userName) => {
           <div class="container">
             <div class="header">
               <div class="logo">
-                <h1>✅ Innovadom</h1>
+                <h1>✅ ProductOneX</h1>
                 <p>Sistema de Gestión</p>
               </div>
             </div>
@@ -420,7 +420,7 @@ export const sendPasswordChangedEmail = async (email, userName) => {
               <div class="success-icon">🎉</div>
               <h2>Contraseña Cambiada Exitosamente</h2>
               <p>Hola ${userName || 'Usuario'},</p>
-              <p>Tu contraseña ha sido restablecida exitosamente en el sistema Innovadom.</p>
+              <p>Tu contraseña ha sido restablecida exitosamente en el sistema ProductOneX.</p>
               
               <p>Ahora puedes acceder a tu cuenta con tu nueva contraseña.</p>
               
@@ -448,17 +448,17 @@ export const sendPasswordChangedEmail = async (email, userName) => {
         </html>
       `,
       text: `
-        Contraseña Cambiada - Innovadom
-        
-        Hola ${userName || 'Usuario'},
-        
-        Tu contraseña ha sido restablecida exitosamente en el sistema Innovadom.
-        
-        Ahora puedes acceder a tu cuenta con tu nueva contraseña.
-        
-        Si no realizaste este cambio, contacta inmediatamente al equipo de soporte.
-        
-        © 2024 Innovadom. Todos los derechos reservados.
+                 Contraseña Cambiada - ProductOneX
+         
+         Hola ${userName || 'Usuario'},
+         
+         Tu contraseña ha sido restablecida exitosamente en el sistema ProductOneX.
+         
+         Ahora puedes acceder a tu cuenta con tu nueva contraseña.
+         
+         Si no realizaste este cambio, contacta inmediatamente al equipo de soporte.
+         
+         © 2025 ProductOneX. Todos los derechos reservados.
       `
     };
 
