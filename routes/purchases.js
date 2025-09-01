@@ -126,6 +126,7 @@ router.post('/', protect, async (req, res) => {
     const {
       supplier,
       items,
+      total,
       paymentMethod,
       expectedDelivery,
       category,
