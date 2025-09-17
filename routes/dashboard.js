@@ -54,12 +54,14 @@ router.get('/stats', protect, async (req, res) => {
         $group: {
           _id: null,
           total: { $sum: '$total' },
+          totalCost: { $sum: '$totalCost' },
+          profit: { $sum: '$profit' },
           count: { $sum: 1 }
         }
       }
     ]);
 
-    const monthlySalesData = monthlySales[0] || { total: 0, count: 0 };
+    const monthlySalesData = monthlySales[0] || { total: 0, totalCost: 0, profit: 0, count: 0 };
 
     // Estadísticas de compras del mes
     const monthlyPurchases = await Purchase.aggregate([
@@ -86,8 +88,16 @@ router.get('/stats', protect, async (req, res) => {
       expirationDate: { $lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) }
     });
 
-    // Calcular ganancia aproximada (ventas - compras)
-    const profit = monthlySalesData.total - monthlyPurchasesData.total;
+    // Usar el profit real calculado en las ventas
+    const profit = monthlySalesData.profit;
+    const profitMargin = monthlySalesData.totalCost > 0 ? (profit / monthlySalesData.totalCost) * 100 : 0;
+    
+    console.log(`[DASHBOARD] Estadísticas de ventas del mes:`);
+    console.log(`[DASHBOARD] - Total ventas: $${monthlySalesData.total}`);
+    console.log(`[DASHBOARD] - Costo total: $${monthlySalesData.totalCost}`);
+    console.log(`[DASHBOARD] - Ganancia: $${profit}`);
+    console.log(`[DASHBOARD] - Margen de ganancia: ${profitMargin.toFixed(2)}%`);
+    console.log(`[DASHBOARD] - Número de ventas: ${monthlySalesData.count}`);
 
     res.json({
       success: true,
@@ -107,7 +117,10 @@ router.get('/stats', protect, async (req, res) => {
         sales: {
           total: monthlySalesData.total,
           monthly: monthlySalesData.total,
-          profit: Math.max(0, profit)
+          totalCost: monthlySalesData.totalCost,
+          profit: Math.max(0, profit),
+          profitMargin: Math.round(profitMargin * 100) / 100,
+          count: monthlySalesData.count
         },
         purchases: {
           total: monthlyPurchasesData.total,
@@ -184,6 +197,8 @@ router.get('/monthly-sales', protect, async (req, res) => {
           _id: { $month: '$createdAt' },
           month: { $first: { $month: '$createdAt' } },
           total: { $sum: '$total' },
+          totalCost: { $sum: '$totalCost' },
+          profit: { $sum: '$profit' },
           count: { $sum: 1 }
         }
       },
@@ -196,9 +211,17 @@ router.get('/monthly-sales', protect, async (req, res) => {
     const months = [];
     for (let i = 1; i <= 12; i++) {
       const monthData = monthlyData.find(m => m.month === i);
+      const total = monthData ? monthData.total : 0;
+      const totalCost = monthData ? monthData.totalCost : 0;
+      const profit = monthData ? monthData.profit : 0;
+      const profitMargin = totalCost > 0 ? (profit / totalCost) * 100 : 0;
+      
       months.push({
         month: i,
-        total: monthData ? monthData.total : 0,
+        total: total,
+        totalCost: totalCost,
+        profit: profit,
+        profitMargin: Math.round(profitMargin * 100) / 100,
         count: monthData ? monthData.count : 0
       });
     }

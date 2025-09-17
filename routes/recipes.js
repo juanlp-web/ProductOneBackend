@@ -240,7 +240,7 @@ router.get('/:id/cost', protect, async (req, res) => {
       recipeId: recipe._id,
       recipeName: recipe.name,
       totalCost: totalCost,
-      costPerServing: totalCost / recipe.servings
+      costPerServing: totalCost / (recipe.batchInfo?.quantity || recipe.servings || 1)
     });
   } catch (error) {
     console.error('Error al calcular costo:', error);
@@ -280,7 +280,7 @@ router.put('/:id/status', protect, manager, async (req, res) => {
         return res.status(404).json({ message: 'Producto no encontrado' });
       }
 
-      const quantityToDecrease = recipe.batchInfo?.quantity || recipe.servings || 1;
+      const quantityToDecrease = recipe.batchInfo?.quantity || 1;
 
       // Verificar que hay suficiente stock para disminuir
       if (product.stock < quantityToDecrease) {
@@ -345,9 +345,9 @@ router.put('/:id/status', protect, manager, async (req, res) => {
       }
 
       // Verificar que la receta tenga información de lote
-      if (!recipe.batchInfo || !recipe.batchInfo.expirationDate || !recipe.batchInfo.quantity) {
+      if (!recipe.batchInfo || !recipe.batchInfo.expirationDate || !recipe.batchInfo.quantity || !recipe.batchInfo.unit) {
         return res.status(400).json({ 
-          message: 'La receta debe tener información de lote (fecha de vencimiento y cantidad) para ser completada' 
+          message: 'La receta debe tener información completa de lote (fecha de vencimiento, cantidad y unidad) para ser completada' 
         });
       }
 
@@ -369,6 +369,7 @@ router.put('/:id/status', protect, manager, async (req, res) => {
 
       // Crear el lote
       const batchData = {
+        batchNumber: recipe.batchInfo.batchNumber, // Usar el número de lote del frontend
         product: product._id,
         productName: product.name,
         quantity: recipe.batchInfo.quantity,
@@ -386,13 +387,49 @@ router.put('/:id/status', protect, manager, async (req, res) => {
 
       const batch = await Batch.create(batchData);
 
-      // Aumentar stock del producto producido
+      // Calcular costo promedio del producto
+      let newCost = recipe.cost || 0;
+      console.log(`[RECIPE] Calculando costo promedio para producto ${product.name}:`);
+      console.log(`[RECIPE] - Costo actual del producto: ${product.cost}`);
+      console.log(`[RECIPE] - Stock actual del producto: ${product.stock}`);
+      console.log(`[RECIPE] - Costo de la receta: ${recipe.cost}`);
+      console.log(`[RECIPE] - Cantidad a producir: ${recipe.batchInfo.quantity}`);
+      
+      if (product.stock > 0 && product.cost && product.cost > 0) {
+        // Calcular promedio ponderado del costo
+        const totalCurrentValue = product.cost * product.stock;
+        const totalNewValue = newCost * recipe.batchInfo.quantity;
+        const totalStock = product.stock + recipe.batchInfo.quantity;
+        newCost = (totalCurrentValue + totalNewValue) / totalStock;
+        
+        console.log(`[RECIPE] - Valor total actual: ${totalCurrentValue}`);
+        console.log(`[RECIPE] - Valor total nuevo: ${totalNewValue}`);
+        console.log(`[RECIPE] - Stock total: ${totalStock}`);
+        console.log(`[RECIPE] - Nuevo costo promedio: ${newCost}`);
+      } else {
+        console.log(`[RECIPE] - Asignando costo directo (sin promedio): ${newCost}`);
+      }
+
+      // Aumentar stock del producto producido y actualizar costo
       product.stock += recipe.batchInfo.quantity;
+      product.cost = newCost;
       await product.save();
 
       // Actualizar estado de la receta
       recipe.status = newStatus;
-      await recipe.save();
+      try {
+        await recipe.save();
+      } catch (error) {
+        // Si hay error de validación, restaurar ingredientes y stock
+        await restoreIngredients(recipe);
+        product.stock -= recipe.batchInfo.quantity;
+        await product.save();
+        
+        return res.status(400).json({ 
+          message: 'Error de validación al completar la receta',
+          error: error.message 
+        });
+      }
 
       return res.json({
         message: `Receta marcada como completada. Lote ${batch.batchNumber} creado exitosamente. Stock del producto ${product.name} aumentado en ${recipe.batchInfo.quantity} ${recipe.batchInfo.unit}. Ingredientes consumidos exitosamente.`,
@@ -404,6 +441,13 @@ router.put('/:id/status', protect, manager, async (req, res) => {
           oldStock: product.stock - recipe.batchInfo.quantity,
           newStock: product.stock,
           change: recipe.batchInfo.quantity
+        },
+        costChange: {
+          productId: product._id,
+          productName: product.name,
+          oldCost: product.cost,
+          newCost: newCost,
+          change: newCost - (product.cost || 0)
         },
         ingredientsConsumed: consumedIngredients
       });

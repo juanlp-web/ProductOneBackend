@@ -28,6 +28,11 @@ const saleSchema = new mongoose.Schema({
       required: true,
       min: [0, 'El precio unitario no puede ser negativo']
     },
+    cost: {
+      type: Number,
+      required: true,
+      min: [0, 'El costo no puede ser negativo']
+    },
     discount: {
       type: Number,
       default: 0,
@@ -40,6 +45,30 @@ const saleSchema = new mongoose.Schema({
     batch: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Batch',
+      required: false
+    },
+    // Campos para paquetes
+    isPackage: {
+      type: Boolean,
+      default: false
+    },
+    package: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Package',
+      required: false
+    },
+    // Campos para productos que vienen de paquetes
+    isFromPackage: {
+      type: Boolean,
+      default: false
+    },
+    packageId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Package',
+      required: false
+    },
+    packageName: {
+      type: String,
       required: false
     }
   }],
@@ -62,6 +91,21 @@ const saleSchema = new mongoose.Schema({
     type: Number,
     required: true,
     min: [0, 'El total no puede ser negativo']
+  },
+  totalCost: {
+    type: Number,
+    required: true,
+    min: [0, 'El costo total no puede ser negativo']
+  },
+  profit: {
+    type: Number,
+    required: true,
+    min: [0, 'La ganancia no puede ser negativa']
+  },
+  profitMargin: {
+    type: Number,
+    required: true,
+    min: [0, 'El margen de ganancia no puede ser negativo']
   },
   paymentMethod: {
     type: String,

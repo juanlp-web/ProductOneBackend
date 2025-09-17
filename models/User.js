@@ -87,6 +87,17 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  // Multi-tenant: Información del tenant
+  tenantId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Tenant',
+    required: false // Opcional para usuarios del tenant principal
+  },
+  tenantRole: {
+    type: String,
+    enum: ['owner', 'admin', 'user'],
+    default: 'user'
+  },
   // Timestamps
   createdAt: {
     type: Date,
@@ -104,6 +115,8 @@ const userSchema = new mongoose.Schema({
 userSchema.index({ email: 1 });
 userSchema.index({ username: 1 });
 userSchema.index({ role: 1 });
+userSchema.index({ tenantId: 1 });
+userSchema.index({ tenantRole: 1 });
 
 // Métodos de instancia
 userSchema.methods.comparePassword = async function(candidatePassword) {

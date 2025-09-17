@@ -12,18 +12,47 @@ export const protect = async (req, res, next) => {
       // Verificar token
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-      // Obtener usuario del token
-      req.user = await User.findById(decoded.id).select('-password');
+      // Obtener usuario del token - usar el modelo correcto según tenant
+      let UserModel = User;
+      if (req.tenantModels && req.tenantModels.User) {
+        UserModel = req.tenantModels.User;
+      }
+
+      req.user = await UserModel.findById(decoded.id).select('-password');
+
+      if (!req.user) {
+        return res.status(401).json({ 
+          message: 'Usuario no encontrado',
+          code: 'USER_NOT_FOUND'
+        });
+      }
 
       next();
     } catch (error) {
       console.error('Error de autenticación:', error);
-      res.status(401).json({ message: 'Token no válido' });
+      
+      if (error.name === 'JsonWebTokenError') {
+        return res.status(401).json({ 
+          message: 'Token no válido',
+          code: 'INVALID_TOKEN'
+        });
+      } else if (error.name === 'TokenExpiredError') {
+        return res.status(401).json({ 
+          message: 'Token expirado',
+          code: 'TOKEN_EXPIRED'
+        });
+      } else {
+        return res.status(500).json({ 
+          message: 'Error interno de autenticación',
+          code: 'AUTH_ERROR'
+        });
+      }
     }
-  }
-
-  if (!token) {
-    res.status(401).json({ message: 'No hay token, acceso denegado' });
+  } else {
+    return res.status(401).json({ 
+      message: 'No hay token, acceso denegado',
+      code: 'NO_TOKEN'
+    });
   }
 };
 

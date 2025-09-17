@@ -245,6 +245,7 @@ router.put('/:id/restore', protect, manager, async (req, res) => {
 // @access  Private
 router.get('/product/:productId/active', protect, async (req, res) => {
   try {
+    console.log('ProductId recibido:', req.params.productId, 'Tipo:', typeof req.params.productId);
     const batches = await Batch.getActiveBatches(req.params.productId);
     res.json(batches);
   } catch (error) {

@@ -293,18 +293,72 @@ router.post('/', protect, async (req, res) => {
 
     await purchase.save();
 
-    // Si la compra está recibida, actualizar stock
+    // Si la compra está recibida, actualizar stock y costo
     if (purchase.status === 'recibida') {
+      const stockUpdates = [];
+      
       for (const item of itemsToCreate) {
         const product = await Product.findById(item.product);
         if (!product) continue;
 
-        // Actualizar stock del producto
+        // Calcular costo promedio si hay stock existente
+        let newCost = item.price || 0; // Usar el campo 'price' del item de compra
+        console.log(`Procesando producto ${item.productName}:`, {
+          currentCost: product.cost,
+          currentStock: product.stock,
+          newCost: newCost,
+          quantity: item.quantity
+        });
+        
+        if (product.stock > 0 && product.cost && product.cost > 0) {
+          // Fórmula: (costo_actual * stock_actual + costo_nuevo * cantidad_nueva) / (stock_actual + cantidad_nueva)
+          const totalCurrentValue = product.cost * product.stock;
+          const totalNewValue = newCost * item.quantity;
+          const totalStock = product.stock + item.quantity;
+          newCost = (totalCurrentValue + totalNewValue) / totalStock;
+          console.log(`Costo promedio calculado:`, {
+            totalCurrentValue,
+            totalNewValue,
+            totalStock,
+            newCost
+          });
+        } else {
+          console.log(`Asignando costo directo (sin stock previo o sin costo previo):`, newCost);
+        }
+
+        // Actualizar stock y costo del producto
+        console.log(`Actualizando producto ${item.productName} con:`, {
+          stockIncrement: item.quantity,
+          newCost: newCost
+        });
+        
         const updatedProduct = await Product.findByIdAndUpdate(
           item.product,
-          { $inc: { stock: item.quantity } },
+          { 
+            $inc: { stock: item.quantity },
+            $set: { cost: newCost }
+          },
           { new: true }
         );
+        
+        console.log(`Producto actualizado:`, {
+          productId: item.product,
+          oldCost: product.cost,
+          newCost: updatedProduct.cost,
+          oldStock: product.stock,
+          newStock: updatedProduct.stock
+        });
+
+        stockUpdates.push({
+          productId: item.product,
+          productName: item.productName,
+          quantity: item.quantity,
+          oldStock: updatedProduct.stock - item.quantity,
+          newStock: updatedProduct.stock,
+          oldCost: product.cost,
+          newCost: newCost,
+          costChange: newCost - (product.cost || 0)
+        });
 
         // Si el item tiene un lote asociado, actualizar el stock del lote
         if (item.batch) {
@@ -346,7 +400,9 @@ router.post('/', protect, async (req, res) => {
 
     res.status(201).json({
       success: true,
-      data: purchase
+      message: purchase.status === 'recibida' ? 'Compra creada y stock/costos actualizados' : 'Compra creada exitosamente',
+      data: purchase,
+      ...(purchase.status === 'recibida' && { stockUpdates })
     });
   } catch (error) {
     console.error('Error al crear compra:', error);
@@ -481,16 +537,78 @@ router.patch('/:id/status', protect, async (req, res) => {
       });
     }
 
-    // Si se está cambiando a "recibida" y antes no lo estaba, actualizar stock
+    // Si se está cambiando a "recibida" y antes no lo estaba, actualizar stock y costo
     if (status === 'recibida' && purchase.status !== 'recibida') {
-      // Actualizar stock de todos los productos en la compra
+      const stockUpdates = [];
+      
+      // Actualizar stock y costo de todos los productos en la compra
       for (const item of purchase.items) {
         try {
-          await Product.findByIdAndUpdate(
+          // Obtener el producto actual para calcular costo promedio
+          const currentProduct = await Product.findById(item.product);
+          if (!currentProduct) {
+            console.error(`Producto ${item.product} no encontrado`);
+            continue;
+          }
+
+          // Calcular costo promedio si hay stock existente
+          let newCost = item.price || 0; // Usar el campo 'price' del item de compra
+          console.log(`Procesando producto ${item.productName}:`, {
+            currentCost: currentProduct.cost,
+            currentStock: currentProduct.stock,
+            newCost: newCost,
+            quantity: item.quantity
+          });
+          
+          if (currentProduct.stock > 0 && currentProduct.cost && currentProduct.cost > 0) {
+            // Fórmula: (costo_actual * stock_actual + costo_nuevo * cantidad_nueva) / (stock_actual + cantidad_nueva)
+            const totalCurrentValue = currentProduct.cost * currentProduct.stock;
+            const totalNewValue = newCost * item.quantity;
+            const totalStock = currentProduct.stock + item.quantity;
+            newCost = (totalCurrentValue + totalNewValue) / totalStock;
+            console.log(`Costo promedio calculado:`, {
+              totalCurrentValue,
+              totalNewValue,
+              totalStock,
+              newCost
+            });
+          } else {
+            console.log(`Asignando costo directo (sin stock previo o sin costo previo):`, newCost);
+          }
+
+          // Actualizar stock y costo del producto
+          console.log(`Actualizando producto ${item.productName} con:`, {
+            stockIncrement: item.quantity,
+            newCost: newCost
+          });
+          
+          const updatedProduct = await Product.findByIdAndUpdate(
             item.product,
-            { $inc: { stock: item.quantity } },
+            { 
+              $inc: { stock: item.quantity },
+              $set: { cost: newCost }
+            },
             { new: true }
           );
+          
+          console.log(`Producto actualizado:`, {
+            productId: item.product,
+            oldCost: currentProduct.cost,
+            newCost: updatedProduct.cost,
+            oldStock: currentProduct.stock,
+            newStock: updatedProduct.stock
+          });
+
+          stockUpdates.push({
+            productId: item.product,
+            productName: item.productName,
+            quantity: item.quantity,
+            oldStock: updatedProduct.stock - item.quantity,
+            newStock: updatedProduct.stock,
+            oldCost: currentProduct.cost,
+            newCost: newCost,
+            costChange: newCost - (currentProduct.cost || 0)
+          });
 
           // Si el item tiene un lote asociado, actualizar el stock del lote
           if (item.batch) {
@@ -560,8 +678,11 @@ router.patch('/:id/status', protect, async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Estado de compra actualizado exitosamente',
-      data: purchase
+      message: status === 'recibida' && purchase.status !== 'recibida' 
+        ? 'Estado de compra actualizado y stock/costos actualizados' 
+        : 'Estado de compra actualizado exitosamente',
+      data: purchase,
+      ...(status === 'recibida' && purchase.status !== 'recibida' && { stockUpdates })
     });
   } catch (error) {
     console.error('Error al cambiar estado de compra:', error);
@@ -706,13 +827,48 @@ router.post('/:id/receive', protect, async (req, res) => {
       });
     }
 
-    // Actualizar stock de todos los productos
+    // Actualizar stock y costo de todos los productos
     const stockUpdates = [];
     for (const item of purchase.items) {
       try {
+        // Obtener el producto actual para calcular costo promedio
+        const currentProduct = await Product.findById(item.product);
+        if (!currentProduct) {
+          throw new Error(`Producto ${item.product} no encontrado`);
+        }
+
+        // Calcular costo promedio si hay stock existente
+        let newCost = item.price || 0; // Usar el campo 'price' del item de compra
+        console.log(`Procesando producto ${item.productName}:`, {
+          currentCost: currentProduct.cost,
+          currentStock: currentProduct.stock,
+          newCost: newCost,
+          quantity: item.quantity
+        });
+        
+        if (currentProduct.stock > 0 && currentProduct.cost > 0) {
+          // Fórmula: (costo_actual * stock_actual + costo_nuevo * cantidad_nueva) / (stock_actual + cantidad_nueva)
+          const totalCurrentValue = currentProduct.cost * currentProduct.stock;
+          const totalNewValue = newCost * item.quantity;
+          const totalStock = currentProduct.stock + item.quantity;
+          newCost = (totalCurrentValue + totalNewValue) / totalStock;
+          console.log(`Costo promedio calculado:`, {
+            totalCurrentValue,
+            totalNewValue,
+            totalStock,
+            newCost
+          });
+        } else {
+          console.log(`Asignando costo directo (sin stock previo):`, newCost);
+        }
+
+        // Actualizar stock y costo del producto
         const updatedProduct = await Product.findByIdAndUpdate(
           item.product,
-          { $inc: { stock: item.quantity } },
+          { 
+            $inc: { stock: item.quantity },
+            $set: { cost: newCost }
+          },
           { new: true }
         );
         
@@ -721,7 +877,10 @@ router.post('/:id/receive', protect, async (req, res) => {
           productName: item.productName,
           quantity: item.quantity,
           oldStock: updatedProduct.stock - item.quantity,
-          newStock: updatedProduct.stock
+          newStock: updatedProduct.stock,
+          oldCost: currentProduct.cost,
+          newCost: newCost,
+          costChange: newCost - (currentProduct.cost || 0)
         });
         
 
@@ -757,7 +916,7 @@ router.post('/:id/receive', protect, async (req, res) => {
 
     res.json({
       success: true,
-      message: 'Compra recibida exitosamente y stock actualizado',
+      message: 'Compra recibida exitosamente, stock y costos actualizados',
       data: {
         purchase,
         stockUpdates

@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 
 const connectDB = async () => {
   try {
+    // Configuración más robusta para evitar errores de conexión
     const conn = await mongoose.connect(process.env.MONGODB_URI, {
       // Opciones recomendadas para MongoDB Atlas
       maxPoolSize: 10, // Mantener hasta 10 conexiones en el pool

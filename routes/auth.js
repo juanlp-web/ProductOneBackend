@@ -49,7 +49,7 @@ router.post('/register', async (req, res) => {
           role: user.role,
           firstName: user.firstName,
           lastName: user.lastName,
-          token: generateToken(user._id)
+          token: generateToken(user._id, user.tenantId)
         }
       });
     }
@@ -112,7 +112,7 @@ router.post('/login', async (req, res) => {
           role: user.role,
           firstName: user.firstName,
           lastName: user.lastName,
-          token: generateToken(user._id)
+          token: generateToken(user._id, user.tenantId)
         }
       });
     } else {
@@ -399,9 +399,14 @@ function getDeviceType(userAgent) {
   return 'Desktop';
 }
 
-// Generar token JWT
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
+// Generar token JWT con información del tenant
+const generateToken = (id, tenantId = null) => {
+  const payload = { id };
+  if (tenantId) {
+    payload.tenantId = tenantId;
+  }
+  
+  return jwt.sign(payload, process.env.JWT_SECRET, {
     expiresIn: '30d'
   });
 };

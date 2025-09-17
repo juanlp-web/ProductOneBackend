@@ -81,14 +81,16 @@ const batchSchema = new mongoose.Schema({
 
 // Middleware pre-validate para generar número de lote
 batchSchema.pre('validate', function(next) {
-  // Generar número de lote si no existe
-  if (!this.batchNumber) {
+  // Generar número de lote solo si no existe y no viene del frontend
+  if (!this.batchNumber || this.batchNumber.trim() === '') {
     const date = new Date();
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
     const day = String(date.getDate()).padStart(2, '0');
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-    this.batchNumber = `L-${year}${month}${day}-${random}`;
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    this.batchNumber = `LOTE-${year}${month}${day}-${hours}${minutes}${seconds}`;
   }
   
   // Establecer stock inicial igual a la cantidad si no se especifica

@@ -56,17 +56,14 @@ const recipeSchema = new mongoose.Schema({
       default: Date.now
     },
     expirationDate: {
-      type: Date,
-      required: [true, 'La fecha de vencimiento es requerida']
+      type: Date
     },
     quantity: {
       type: Number,
-      required: [true, 'La cantidad a producir es requerida'],
       min: [1, 'La cantidad debe ser mayor a 0']
     },
     unit: {
-      type: String,
-      required: [true, 'La unidad de medida es requerida']
+      type: String
     }
   },
   ingredients: [{
@@ -143,6 +140,32 @@ recipeSchema.path('ingredients').validate(function(ingredients) {
   
   return true;
 }, 'Cada ingrediente debe tener o un producto del inventario o un nombre genérico, pero no ambos');
+
+// Pre-save hook para sincronizar servings con batchInfo.quantity
+recipeSchema.pre('save', function(next) {
+  // Si hay batchInfo.quantity, usar ese valor para servings
+  if (this.batchInfo && this.batchInfo.quantity) {
+    this.servings = this.batchInfo.quantity;
+  }
+  next();
+});
+
+// Validación personalizada para batchInfo cuando la receta se completa
+recipeSchema.pre('save', function(next) {
+  // Solo validar batchInfo si el status es 'completada'
+  if (this.status === 'completada' && this.batchInfo) {
+    if (!this.batchInfo.expirationDate) {
+      return next(new Error('La fecha de vencimiento es requerida para completar la receta'));
+    }
+    if (!this.batchInfo.quantity || this.batchInfo.quantity <= 0) {
+      return next(new Error('La cantidad a producir es requerida y debe ser mayor a 0 para completar la receta'));
+    }
+    if (!this.batchInfo.unit) {
+      return next(new Error('La unidad de medida es requerida para completar la receta'));
+    }
+  }
+  next();
+});
 
 // Índices para mejorar el rendimiento
 recipeSchema.index({ name: 'text', description: 'text' });

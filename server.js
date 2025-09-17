@@ -12,8 +12,15 @@ import batchRoutes from './routes/batches.js';
 import inventoryRoutes from './routes/inventory.js';
 import salesRoutes from './routes/sales.js';
 import purchaseRoutes from './routes/purchases.js';
+import packageRoutes from './routes/packages.js';
 import dashboardRoutes from './routes/dashboard.js';
 import profileRoutes from './routes/profile.js';
+import tenantRoutes from './routes/tenants.js';
+import configRoutes from './routes/config.js';
+
+// Middleware de tenant y salud
+import { identifyTenant, logTenantActivity } from './middleware/tenant.js';
+import { checkDBHealth, dbHealthCheck } from './middleware/dbHealth.js';
 
 // Cargar variables de entorno
 dotenv.config();
@@ -29,12 +36,28 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Conectar a MongoDB
-connectDB();
+// Aplicar middleware de salud antes que todo
+app.use('/health', dbHealthCheck);
+app.use(checkDBHealth);
 
-
+// Conectar a MongoDB y esperar a que esté listo
+const startServer = async () => {
+  try {
+    await connectDB();
+    
+    // Solo aplicar middleware de tenant después de conectar a MongoDB
+    app.use(identifyTenant);
+    app.use(logTenantActivity);
+    
+    console.log('✅ Middleware de tenant aplicado después de conexión DB');
+  } catch (error) {
+    console.error('❌ Error conectando a MongoDB, no se aplicará middleware de tenant');
+    throw error; // Re-lanzar error para que el servidor no inicie si no hay DB
+  }
+};
 
 // Rutas
+app.use('/api/tenants', tenantRoutes); // Rutas de gestión de tenants
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/products', productRoutes);
@@ -45,8 +68,10 @@ app.use('/api/batches', batchRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/sales', salesRoutes);
 app.use('/api/purchases', purchaseRoutes);
+app.use('/api/packages', packageRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/profile', profileRoutes);
+app.use('/api/config', configRoutes);
 
 // Ruta de prueba
 app.get('/', (req, res) => {
@@ -84,9 +109,18 @@ app.use('*', (req, res) => {
   res.status(404).json({ message: 'Ruta no encontrada' });
 });
 
-// Iniciar servidor
-app.listen(PORT, () => {
-  console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
-  console.log(`📱 Frontend: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
-  console.log(`🔗 API: http://localhost:${PORT}`);
+// Iniciar servidor después de configurar todo
+const initializeServer = async () => {
+  await startServer();
+  
+  app.listen(PORT, () => {
+    console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
+    console.log(`📱 Frontend: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
+    console.log(`🔗 API: http://localhost:${PORT}`);
+  });
+};
+
+initializeServer().catch(error => {
+  console.error('❌ Error inicializando servidor:', error);
+  process.exit(1);
 });

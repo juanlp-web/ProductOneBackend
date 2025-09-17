@@ -2,9 +2,54 @@ import express from 'express';
 import Sale from '../models/Sale.js';
 import Product from '../models/Product.js';
 import Batch from '../models/Batch.js';
+import Package from '../models/Package.js';
+import Config from '../models/Config.js';
 import { protect, manager } from '../middleware/auth.js';
 
 const router = express.Router();
+
+// @desc    Obtener paquetes disponibles para ventas
+// @route   GET /api/sales/available-packages
+// @access  Private
+router.get('/available-packages', protect, async (req, res) => {
+  try {
+    const packages = await Package.find({ isActive: true })
+      .populate('items.product', 'name sku price cost stock category')
+      .select('name sku category items sellingPrice discount finalPrice profitMargin')
+      .lean();
+
+    // Verificar disponibilidad de stock para cada paquete
+    const availablePackages = [];
+    
+    for (const packageItem of packages) {
+      // Verificar stock manualmente ya que usamos .lean()
+      let stockAvailable = true;
+      const unavailableItems = [];
+      
+      for (const item of packageItem.items) {
+        if (item.product && item.product.stock < item.quantity) {
+          stockAvailable = false;
+          unavailableItems.push({
+            product: item.product.name,
+            required: item.quantity,
+            available: item.product.stock
+          });
+        }
+      }
+      
+      availablePackages.push({
+        ...packageItem,
+        stockAvailable,
+        unavailableItems: stockAvailable ? [] : unavailableItems
+      });
+    }
+
+    res.json(availablePackages);
+  } catch (error) {
+    console.error('Error al obtener paquetes disponibles:', error);
+    res.status(500).json({ message: 'Error en el servidor' });
+  }
+});
 
 // @desc    Obtener todas las ventas
 // @route   GET /api/sales
@@ -84,72 +129,220 @@ router.post('/', protect, manager, async (req, res) => {
     
     // Calcular totales
     let subtotal = 0;
+    let totalCost = 0;
     const processedItems = [];
     
     for (const item of items) {
-      const product = await Product.findById(item.product);
-      if (!product) {
-        return res.status(400).json({ message: `Producto ${item.product} no encontrado` });
-      }
+      let itemTotal = 0;
+      let processedItem = { ...item };
       
-      // Si se especifica un lote, validar y consumir stock del lote
-      if (item.batch) {
-        const batch = await Batch.findById(item.batch);
-        if (!batch) {
-          return res.status(400).json({ message: `Lote ${item.batch} no encontrado` });
+      // Manejar ventas de paquetes
+      if (item.isPackage && item.package) {
+        const packageItem = await Package.findById(item.package);
+        if (!packageItem) {
+          return res.status(400).json({ message: `Paquete ${item.package} no encontrado` });
         }
         
-        if (batch.product.toString() !== item.product) {
-          return res.status(400).json({ message: `El lote ${batch.batchNumber} no corresponde al producto ${product.name}` });
+        if (!packageItem.isActive) {
+          return res.status(400).json({ message: `El paquete ${packageItem.name} no está activo` });
         }
         
-        if (batch.currentStock < item.quantity) {
+        // Verificar disponibilidad de stock del paquete
+        const availability = await packageItem.checkStockAvailability();
+        if (!availability.available) {
           return res.status(400).json({ 
-            message: `Stock insuficiente en lote #${batch.batchNumber} para ${product.name}. Disponible: ${batch.currentStock} ${batch.unit}` 
+            message: `Stock insuficiente para el paquete ${packageItem.name}. Productos no disponibles: ${availability.unavailableItems.map(i => `${i.product} (necesario: ${i.required}, disponible: ${i.available})`).join(', ')}` 
           });
         }
         
-        if (batch.status !== 'activo') {
+        // Consumir stock de todos los productos del paquete
+        const consumedItems = await packageItem.consumeStock();
+        
+        itemTotal = (packageItem.finalPrice - (item.discount || 0)) * item.quantity;
+        const itemCost = packageItem.totalCost * item.quantity;
+        
+        processedItem = {
+          ...item,
+          unitPrice: packageItem.finalPrice,
+          cost: packageItem.totalCost,
+          total: itemTotal,
+          consumedItems: consumedItems
+        };
+        
+        totalCost += itemCost;
+        
+      } else if (item.isFromPackage && item.packageId) {
+        // Manejar productos que vienen de paquetes
+        const packageItem = await Package.findById(item.packageId);
+        if (!packageItem) {
+          return res.status(400).json({ message: `Paquete ${item.packageId} no encontrado` });
+        }
+        
+        if (!packageItem.isActive) {
+          return res.status(400).json({ message: `El paquete ${packageItem.name} no está activo` });
+        }
+        
+        // Verificar que el producto pertenece al paquete
+        const packageProduct = packageItem.items.find(pkgItem => 
+          pkgItem.product.toString() === item.product.toString()
+        );
+        
+        if (!packageProduct) {
           return res.status(400).json({ 
-            message: `El lote #${batch.batchNumber} no está activo (estado: ${batch.status})` 
+            message: `El producto ${item.product} no pertenece al paquete ${packageItem.name}` 
           });
         }
         
-        // Consumir stock del lote
-        await Batch.findByIdAndUpdate(item.batch, {
-          $inc: { currentStock: -item.quantity }
+        // Verificar stock del producto individual
+        const product = await Product.findById(item.product);
+        if (!product) {
+          return res.status(400).json({ message: `Producto ${item.product} no encontrado` });
+        }
+        
+        // Si se especifica un lote, validar y consumir stock del lote
+        if (item.batch) {
+          const batch = await Batch.findById(item.batch);
+          if (!batch) {
+            return res.status(400).json({ message: `Lote ${item.batch} no encontrado` });
+          }
+          
+          if (batch.product.toString() !== item.product.toString()) {
+            return res.status(400).json({ 
+              message: `El lote ${batch.batchNumber} no pertenece al producto ${product.name}` 
+            });
+          }
+          
+          if (batch.currentStock < item.quantity) {
+            return res.status(400).json({ 
+              message: `Stock insuficiente en el lote ${batch.batchNumber}. Disponible: ${batch.currentStock}` 
+            });
+          }
+          
+          if (batch.status !== 'activo') {
+            return res.status(400).json({ 
+              message: `El lote ${batch.batchNumber} no está activo` 
+            });
+          }
+          
+          // Consumir stock del lote
+          await Batch.findByIdAndUpdate(item.batch, {
+            $inc: { currentStock: -item.quantity }
+          });
+          
+          // Actualizar estado del lote si se agota
+          if (batch.currentStock - item.quantity === 0) {
+            await Batch.findByIdAndUpdate(item.batch, { status: 'agotado' });
+          }
+        } else {
+          // Validación tradicional de stock del producto
+          if (product.stock < item.quantity) {
+            return res.status(400).json({ 
+              message: `Stock insuficiente para ${product.name}. Disponible: ${product.stock}` 
+            });
+          }
+        }
+        
+        // SIEMPRE actualizar stock del producto principal para productos individuales
+        // El lote es solo una subdivisión del inventario total
+        await Product.findByIdAndUpdate(item.product, {
+          $inc: { stock: -item.quantity }
         });
         
-        // Actualizar estado del lote si se agota
-        if (batch.currentStock - item.quantity === 0) {
-          await Batch.findByIdAndUpdate(item.batch, { status: 'agotado' });
-        }
+        itemTotal = (item.unitPrice - (item.discount || 0)) * item.quantity;
+        const itemCost = product.cost * item.quantity;
+        processedItem = {
+          ...item,
+          cost: product.cost,
+          package: packageItem._id,
+          packageName: packageItem.name,
+          total: itemTotal
+        };
+        
+        totalCost += itemCost;
+        
       } else {
-        // Validación tradicional de stock del producto
-        if (product.stock < item.quantity) {
-          return res.status(400).json({ 
-            message: `Stock insuficiente para ${product.name}. Disponible: ${product.stock}` 
-          });
+        // Lógica tradicional de ventas de productos individuales
+        const product = await Product.findById(item.product);
+        if (!product) {
+          return res.status(400).json({ message: `Producto ${item.product} no encontrado` });
         }
+        
+        // Si se especifica un lote, validar y consumir stock del lote
+        if (item.batch) {
+          const batch = await Batch.findById(item.batch);
+          if (!batch) {
+            return res.status(400).json({ message: `Lote ${item.batch} no encontrado` });
+          }
+          
+          if (batch.product.toString() !== item.product) {
+            return res.status(400).json({ message: `El lote ${batch.batchNumber} no corresponde al producto ${product.name}` });
+          }
+          
+          if (batch.currentStock < item.quantity) {
+            return res.status(400).json({ 
+              message: `Stock insuficiente en lote #${batch.batchNumber} para ${product.name}. Disponible: ${batch.currentStock} ${batch.unit}` 
+            });
+          }
+          
+          if (batch.status !== 'activo') {
+            return res.status(400).json({ 
+              message: `El lote #${batch.batchNumber} no está activo (estado: ${batch.status})` 
+            });
+          }
+          
+          // Consumir stock del lote
+          await Batch.findByIdAndUpdate(item.batch, {
+            $inc: { currentStock: -item.quantity }
+          });
+          
+          // Actualizar estado del lote si se agota
+          if (batch.currentStock - item.quantity === 0) {
+            await Batch.findByIdAndUpdate(item.batch, { status: 'agotado' });
+          }
+        } else {
+          // Validación tradicional de stock del producto
+          if (product.stock < item.quantity) {
+            return res.status(400).json({ 
+              message: `Stock insuficiente para ${product.name}. Disponible: ${product.stock}` 
+            });
+          }
+        }
+        
+        itemTotal = (item.unitPrice - (item.discount || 0)) * item.quantity;
+        const itemCost = product.cost * item.quantity;
+        processedItem = {
+          ...item,
+          cost: product.cost,
+          total: itemTotal
+        };
+        
+        totalCost += itemCost;
+        
+        // SIEMPRE actualizar stock del producto principal para productos individuales
+        // El lote es solo una subdivisión del inventario total
+        await Product.findByIdAndUpdate(item.product, {
+          $inc: { stock: -item.quantity }
+        });
       }
       
-      const itemTotal = (item.unitPrice - (item.discount || 0)) * item.quantity;
       subtotal += itemTotal;
-      
-      processedItems.push({
-        ...item,
-        total: itemTotal
-      });
-      
-      // SIEMPRE actualizar stock del producto principal
-      // El lote es solo una subdivisión del inventario total
-      await Product.findByIdAndUpdate(item.product, {
-        $inc: { stock: -item.quantity }
-      });
+      processedItems.push(processedItem);
     }
     
-    const tax = subtotal * 0.16; // 16% IVA
+    // Obtener IVA de la configuración
+    const ivaPercentage = await Config.getByKey('iva_percentage') || 0;
+    const tax = subtotal * (ivaPercentage / 100);
     const total = subtotal + tax;
+    
+    // Calcular ganancia y margen
+    const profit = subtotal - totalCost;
+    const profitMargin = totalCost > 0 ? (profit / totalCost) * 100 : 0;
+    
+    console.log(`[SALE] Cálculos de ganancia:`);
+    console.log(`[SALE] - Subtotal: $${subtotal}`);
+    console.log(`[SALE] - Costo total: $${totalCost}`);
+    console.log(`[SALE] - Ganancia: $${profit}`);
+    console.log(`[SALE] - Margen de ganancia: ${profitMargin.toFixed(2)}%`);
     
     const saleData = {
       invoiceNumber: generateInvoiceNumber(),
@@ -158,6 +351,9 @@ router.post('/', protect, manager, async (req, res) => {
       subtotal,
       tax,
       total,
+      totalCost,
+      profit,
+      profitMargin,
       paymentMethod,
       notes,
       createdBy: req.user._id
