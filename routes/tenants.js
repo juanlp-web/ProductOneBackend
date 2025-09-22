@@ -115,7 +115,6 @@ router.post('/register', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error creando tenant:', error);
     res.status(500).json({
       success: false,
       message: 'Error interno del servidor',
@@ -170,7 +169,6 @@ router.get('/current', identifyTenant, requireTenant, protect, async (req, res) 
     });
 
   } catch (error) {
-    console.error('Error obteniendo información del tenant:', error);
     res.status(500).json({
       success: false,
       message: 'Error obteniendo información del tenant'
@@ -211,7 +209,6 @@ router.put('/current', identifyTenant, requireTenant, protect, async (req, res) 
     });
 
   } catch (error) {
-    console.error('Error actualizando tenant:', error);
     res.status(500).json({
       success: false,
       message: 'Error actualizando configuración'
@@ -265,7 +262,6 @@ router.post('/upgrade', identifyTenant, requireTenant, protect, async (req, res)
     });
 
   } catch (error) {
-    console.error('Error actualizando plan:', error);
     res.status(500).json({
       success: false,
       message: 'Error actualizando plan'
@@ -306,7 +302,6 @@ router.get('/', protect, admin, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error obteniendo tenants:', error);
     res.status(500).json({
       success: false,
       message: 'Error obteniendo tenants'
@@ -346,10 +341,49 @@ router.put('/:id/status', protect, admin, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error actualizando estado del tenant:', error);
     res.status(500).json({
       success: false,
       message: 'Error actualizando estado'
+    });
+  }
+});
+
+// @desc    Obtener tenants del usuario actual
+// @route   GET /api/tenants/current
+// @access  Private
+router.get('/current', protect, async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).populate('tenantId', 'name subdomain _id companyName plan status');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'Usuario no encontrado'
+      });
+    }
+
+    // Si el usuario tiene un tenant asignado, devolverlo
+    if (user.tenantId) {
+      return res.json({
+        success: true,
+        data: {
+          tenants: [user.tenantId]
+        }
+      });
+    }
+
+    // Si no tiene tenant, devolver array vacío
+    res.json({
+      success: true,
+      data: {
+        tenants: []
+      }
+    });
+
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error obteniendo tenants'
     });
   }
 });

@@ -1,14 +1,18 @@
 import express from 'express';
 import Product from '../models/Product.js';
 import { protect, manager } from '../middleware/auth.js';
+import { identifyTenant } from '../middleware/tenant.js';
 
 const router = express.Router();
 
 // @desc    Obtener todos los productos
 // @route   GET /api/products
 // @access  Private
-router.get('/', protect, async (req, res) => {
+router.get('/', protect, identifyTenant, async (req, res) => {
   try {
+    // Usar modelo del tenant si está disponible
+    const ProductModel = req.tenantModels?.Product || Product;
+    
     const { page = 1, limit = 50, search, category, supplier } = req.query;
     
     const query = { isActive: true };
@@ -37,12 +41,12 @@ router.get('/', protect, async (req, res) => {
       sort: { createdAt: -1 }
     };
     
-    const products = await Product.find(query)
+    const products = await ProductModel.find(query)
       .limit(options.limit * 1)
       .skip((options.page - 1) * options.limit)
       .sort(options.sort);
     
-    const total = await Product.countDocuments(query);
+    const total = await ProductModel.countDocuments(query);
     
     res.json({
       products,
@@ -51,7 +55,6 @@ router.get('/', protect, async (req, res) => {
       total
     });
   } catch (error) {
-    console.error('Error al obtener productos:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -59,9 +62,10 @@ router.get('/', protect, async (req, res) => {
 // @desc    Obtener producto por ID
 // @route   GET /api/products/:id
 // @access  Private
-router.get('/:id', protect, async (req, res) => {
+router.get('/:id', protect, identifyTenant, async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id)
+    const ProductModel = req.tenantModels?.Product || Product;
+    const product = await ProductModel.findById(req.params.id)
       .populate('supplier', 'name email phone');
     
     if (product) {
@@ -70,7 +74,6 @@ router.get('/:id', protect, async (req, res) => {
       res.status(404).json({ message: 'Producto no encontrado' });
     }
   } catch (error) {
-    console.error('Error al obtener producto:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -78,12 +81,12 @@ router.get('/:id', protect, async (req, res) => {
 // @desc    Crear producto
 // @route   POST /api/products
 // @access  Private (Manager/Admin)
-router.post('/', protect, manager, async (req, res) => {
+router.post('/', protect, identifyTenant, manager, async (req, res) => {
   try {
-    const product = await Product.create(req.body);
+    const ProductModel = req.tenantModels?.Product || Product;
+    const product = await ProductModel.create(req.body);
     res.status(201).json(product);
   } catch (error) {
-    console.error('Error al crear producto:', error);
     if (error.code === 11000) {
       res.status(400).json({ message: 'El SKU ya existe' });
     } else {
@@ -95,9 +98,10 @@ router.post('/', protect, manager, async (req, res) => {
 // @desc    Actualizar producto
 // @route   PUT /api/products/:id
 // @access  Private (Manager/Admin)
-router.put('/:id', protect, manager, async (req, res) => {
+router.put('/:id', protect, identifyTenant, manager, async (req, res) => {
   try {
-    const product = await Product.findByIdAndUpdate(
+    const ProductModel = req.tenantModels?.Product || Product;
+    const product = await ProductModel.findByIdAndUpdate(
       req.params.id,
       req.body,
       { new: true, runValidators: true }
@@ -109,7 +113,6 @@ router.put('/:id', protect, manager, async (req, res) => {
       res.status(404).json({ message: 'Producto no encontrado' });
     }
   } catch (error) {
-    console.error('Error al actualizar producto:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -117,9 +120,10 @@ router.put('/:id', protect, manager, async (req, res) => {
 // @desc    Eliminar producto (soft delete)
 // @route   DELETE /api/products/:id
 // @access  Private (Manager/Admin)
-router.delete('/:id', protect, manager, async (req, res) => {
+router.delete('/:id', protect, identifyTenant, manager, async (req, res) => {
   try {
-    const product = await Product.findByIdAndUpdate(
+    const ProductModel = req.tenantModels?.Product || Product;
+    const product = await ProductModel.findByIdAndUpdate(
       req.params.id,
       { isActive: false },
       { new: true }
@@ -131,7 +135,6 @@ router.delete('/:id', protect, manager, async (req, res) => {
       res.status(404).json({ message: 'Producto no encontrado' });
     }
   } catch (error) {
-    console.error('Error al eliminar producto:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -139,11 +142,12 @@ router.delete('/:id', protect, manager, async (req, res) => {
 // @desc    Actualizar stock
 // @route   PUT /api/products/:id/stock
 // @access  Private
-router.put('/:id/stock', protect, async (req, res) => {
+router.put('/:id/stock', protect, identifyTenant, async (req, res) => {
   try {
     const { quantity, operation } = req.body; // operation: 'add' o 'subtract'
     
-    const product = await Product.findById(req.params.id);
+    const ProductModel = req.tenantModels?.Product || Product;
+    const product = await ProductModel.findById(req.params.id);
     
     if (!product) {
       return res.status(404).json({ message: 'Producto no encontrado' });
@@ -161,7 +165,6 @@ router.put('/:id/stock', protect, async (req, res) => {
     await product.save();
     res.json(product);
   } catch (error) {
-    console.error('Error al actualizar stock:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -169,16 +172,16 @@ router.put('/:id/stock', protect, async (req, res) => {
 // @desc    Obtener productos con stock bajo
 // @route   GET /api/products/low-stock
 // @access  Private
-router.get('/low-stock', protect, async (req, res) => {
+router.get('/low-stock', protect, identifyTenant, async (req, res) => {
   try {
-    const products = await Product.find({
+    const ProductModel = req.tenantModels?.Product || Product;
+    const products = await ProductModel.find({
       $expr: { $lte: ['$stock', '$minStock'] },
       isActive: true
     }).populate('supplier', 'name');
     
     res.json(products);
   } catch (error) {
-    console.error('Error al obtener productos con stock bajo:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });

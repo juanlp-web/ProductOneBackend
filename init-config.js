@@ -7,11 +7,8 @@ dotenv.config();
 
 const connectDB = async () => {
   try {
-    console.log('🔌 Conectando a MongoDB...');
     await mongoose.connect(process.env.MONGODB_URI);
-    console.log('✅ Conectado a MongoDB');
   } catch (error) {
-    console.error('❌ Error conectando a MongoDB:', error);
     process.exit(1);
   }
 };
@@ -20,7 +17,6 @@ const initConfig = async () => {
   try {
     await connectDB();
     
-    console.log('🚀 Inicializando configuraciones del sistema...');
     
     // Configuraciones por defecto
     const defaultConfigs = [
@@ -81,16 +77,12 @@ const initConfig = async () => {
           createdBy: defaultUserId,
           updatedBy: defaultUserId
         });
-        console.log(`✅ Configuración creada: ${configData.key} = ${configData.value}`);
       } else {
-        console.log(`⚠️  Configuración ya existe: ${configData.key}`);
       }
     }
     
-    console.log('🎉 Configuraciones inicializadas correctamente');
     process.exit(0);
   } catch (error) {
-    console.error('❌ Error inicializando configuraciones:', error);
     process.exit(1);
   }
 };

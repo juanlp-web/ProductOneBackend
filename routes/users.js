@@ -12,7 +12,6 @@ router.get('/', protect, admin, async (req, res) => {
     const users = await User.find({}).select('-password');
     res.json(users);
   } catch (error) {
-    console.error('Error al obtener usuarios:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -29,7 +28,6 @@ router.get('/:id', protect, admin, async (req, res) => {
       res.status(404).json({ message: 'Usuario no encontrado' });
     }
   } catch (error) {
-    console.error('Error al obtener usuario:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -51,7 +49,6 @@ router.put('/:id', protect, admin, async (req, res) => {
       res.status(404).json({ message: 'Usuario no encontrado' });
     }
   } catch (error) {
-    console.error('Error al actualizar usuario:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -73,7 +70,6 @@ router.delete('/:id', protect, admin, async (req, res) => {
       res.status(404).json({ message: 'Usuario no encontrado' });
     }
   } catch (error) {
-    console.error('Error al eliminar usuario:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });

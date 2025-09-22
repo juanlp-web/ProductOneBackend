@@ -7,9 +7,9 @@ import databaseManager from '../services/DatabaseManager.js';
  */
 export const identifyTenant = async (req, res, next) => {
   try {
+    
     // Verificar que la conexión principal esté lista
     if (mongoose.connection.readyState !== 1) {
-      console.log('⚠️ Conexión MongoDB no está lista, saltando identificación de tenant');
       req.tenant = null;
       req.tenantModels = null;
       return next();
@@ -41,7 +41,6 @@ export const identifyTenant = async (req, res, next) => {
         }
       } catch (jwtError) {
         // Si hay error con JWT, continuar sin tenant
-        console.log('No se pudo extraer tenant del JWT:', jwtError.message);
       }
     }
 
@@ -52,8 +51,15 @@ export const identifyTenant = async (req, res, next) => {
       return next();
     }
 
-    // Buscar el tenant
-    const tenant = await Tenant.findActiveBySubdomain(tenantIdentifier);
+    // Buscar el tenant por ID o subdomain
+    let tenant;
+    if (mongoose.Types.ObjectId.isValid(tenantIdentifier)) {
+      // Si es un ObjectId válido, buscar por ID
+      tenant = await Tenant.findById(tenantIdentifier);
+    } else {
+      // Si no es un ObjectId, buscar por subdomain
+      tenant = await Tenant.findActiveBySubdomain(tenantIdentifier);
+    }
     
     if (!tenant) {
       return res.status(404).json({
@@ -89,12 +95,20 @@ export const identifyTenant = async (req, res, next) => {
     req.tenant = tenant;
     req.tenantModels = tenantModels;
     
+    
+    // Verificar que el modelo User esté disponible
+    if (!tenantModels.User) {
+      return res.status(500).json({
+        success: false,
+        message: 'Error de configuración del tenant'
+      });
+    }
+    
     // Actualizar última actividad del tenant
     tenant.updateMetadata({ lastActivity: new Date() });
 
     next();
   } catch (error) {
-    console.error('Error en identifyTenant middleware:', error);
     res.status(500).json({
       success: false,
       message: 'Error interno del servidor',
@@ -158,7 +172,6 @@ export const checkTenantLimits = (type) => {
 
       next();
     } catch (error) {
-      console.error('Error verificando límites del tenant:', error);
       res.status(500).json({
         success: false,
         message: 'Error verificando límites',
@@ -204,7 +217,6 @@ export const getModel = (modelName) => {
         req.Model = Model;
         next();
       }).catch(error => {
-        console.error(`Error cargando modelo ${modelName}:`, error);
         res.status(500).json({
           success: false,
           message: 'Error cargando modelo',
@@ -222,7 +234,6 @@ export const getModel = (modelName) => {
  */
 export const logTenantActivity = (req, res, next) => {
   if (req.tenant) {
-    console.log(`[${req.tenant.subdomain}] ${req.method} ${req.originalUrl} - User: ${req.user?.email || 'anonymous'}`);
   }
   next();
 };

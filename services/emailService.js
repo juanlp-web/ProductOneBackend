@@ -34,13 +34,11 @@ export const generateResetToken = () => {
  */
 export const sendPasswordResetEmail = async (email, resetToken, resetUrl) => {
   try {
-    console.log('🔧 Configurando SMTP para:', email);
     
     const transporter = createTransporter();
     
     // Verificar conexión SMTP
     await transporter.verify();
-    console.log('✅ Conexión SMTP verificada');
     
     const mailOptions = {
       from: '"ProductOneX - Sistema de Gestión" <juancarlos@innovadom.net>',
@@ -315,7 +313,6 @@ export const sendPasswordResetEmail = async (email, resetToken, resetUrl) => {
 
     const info = await transporter.sendMail(mailOptions);
     
-    console.log('✅ Correo enviado exitosamente:', info.messageId);
     
     return {
       success: true,
@@ -324,7 +321,6 @@ export const sendPasswordResetEmail = async (email, resetToken, resetUrl) => {
     };
     
   } catch (error) {
-    console.error('❌ Error al enviar correo:', error);
     
     return {
       success: false,
@@ -342,7 +338,6 @@ export const sendPasswordResetEmail = async (email, resetToken, resetUrl) => {
  */
 export const sendPasswordChangedEmail = async (email, userName) => {
   try {
-    console.log('🔧 Configurando SMTP para confirmación:', email);
     
     const transporter = createTransporter();
     
@@ -464,7 +459,6 @@ export const sendPasswordChangedEmail = async (email, userName) => {
 
     const info = await transporter.sendMail(mailOptions);
     
-    console.log('✅ Correo de confirmación enviado exitosamente:', info.messageId);
     
     return {
       success: true,
@@ -473,7 +467,6 @@ export const sendPasswordChangedEmail = async (email, userName) => {
     };
     
   } catch (error) {
-    console.error('❌ Error al enviar correo de confirmación:', error);
     
     return {
       success: false,

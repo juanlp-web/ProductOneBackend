@@ -12,6 +12,7 @@ export const protect = async (req, res, next) => {
       // Verificar token
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
+
       // Obtener usuario del token - usar el modelo correcto según tenant
       let UserModel = User;
       if (req.tenantModels && req.tenantModels.User) {
@@ -19,18 +20,69 @@ export const protect = async (req, res, next) => {
       }
 
       req.user = await UserModel.findById(decoded.id).select('-password');
-
       if (!req.user) {
-        return res.status(401).json({ 
-          message: 'Usuario no encontrado',
-          code: 'USER_NOT_FOUND'
-        });
+        
+        // Si estamos usando el modelo del tenant y no encontramos el usuario,
+        // intentar buscarlo en la base de datos principal y sincronizarlo
+        if (req.tenantModels && req.tenantModels.User) {
+          const mainUser = await User.findById(decoded.id).select('-password');
+          
+          if (mainUser) {
+            
+            try {
+              // Preparar datos del usuario para el tenant
+              const userData = mainUser.toObject();
+              
+              // Limpiar campos que pueden causar problemas
+              delete userData._id;
+              delete userData.__v;
+              delete userData.createdAt;
+              delete userData.updatedAt;
+              
+              // Asegurar que el tenantId sea correcto
+              userData.tenantId = req.tenant._id;
+              
+              // Generar username único para el tenant si es necesario
+              if (userData.username) {
+                const existingUsername = await req.tenantModels.User.findOne({ username: userData.username });
+                if (existingUsername) {
+                  userData.username = `${userData.username}_${req.tenant._id}`;
+                }
+              }
+              
+              
+              // Verificar si el usuario ya existe en el tenant
+              const existingUser = await req.tenantModels.User.findOne({ email: userData.email });
+              if (existingUser) {
+                req.user = existingUser;
+              } else {
+                // Crear el usuario en la base de datos del tenant
+                const tenantUser = new req.tenantModels.User(userData);
+                
+                await tenantUser.save();
+                req.user = tenantUser;
+              }
+            } catch (syncError) {
+              
+              // Fallback: usar el usuario de la base de datos principal
+              req.user = mainUser;
+            }
+          } else {
+            return res.status(401).json({ 
+              message: 'Usuario no encontrado',
+              code: 'USER_NOT_FOUND'
+            });
+          }
+        } else {
+          return res.status(401).json({ 
+            message: 'Usuario no encontrado',
+            code: 'USER_NOT_FOUND'
+          });
+        }
       }
 
       next();
     } catch (error) {
-      console.error('Error de autenticación:', error);
-      
       if (error.name === 'JsonWebTokenError') {
         return res.status(401).json({ 
           message: 'Token no válido',

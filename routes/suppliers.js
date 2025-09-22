@@ -1,11 +1,13 @@
 import express from 'express';
 import Supplier from '../models/Supplier.js';
 import { protect, authorize } from '../middleware/auth.js';
+import { identifyTenant } from '../middleware/tenant.js';
 
 const router = express.Router();
 
 // Middleware para todas las rutas
 router.use(protect);
+router.use(identifyTenant);
 
 // @desc    Obtener todos los proveedores
 // @route   GET /api/suppliers
@@ -41,17 +43,18 @@ router.get('/', async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
     // Ejecutar consulta con paginación
-    const suppliers = await Supplier.find(filters)
+    const SupplierModel = req.tenantModels?.Supplier || Supplier;
+    const suppliers = await SupplierModel.find(filters)
       .sort(sortOptions)
       .limit(parseInt(limit))
       .skip(skip)
       .select('-__v');
 
     // Contar total de documentos
-    const total = await Supplier.countDocuments(filters);
+    const total = await SupplierModel.countDocuments(filters);
 
     // Calcular estadísticas
-    const stats = await Supplier.getStats();
+    const stats = await SupplierModel.getStats();
 
     res.json({
       success: true,
@@ -65,7 +68,6 @@ router.get('/', async (req, res) => {
       stats
     });
   } catch (error) {
-    console.error('Error al obtener proveedores:', error);
     res.status(500).json({
       success: false,
       message: 'Error al obtener proveedores',
@@ -79,7 +81,8 @@ router.get('/', async (req, res) => {
 // @access  Private
 router.get('/:id', async (req, res) => {
   try {
-    const supplier = await Supplier.findById(req.params.id).select('-__v');
+    const SupplierModel = req.tenantModels?.Supplier || Supplier;
+    const supplier = await SupplierModel.findById(req.params.id).select('-__v');
     
     if (!supplier) {
       return res.status(404).json({
@@ -93,7 +96,6 @@ router.get('/:id', async (req, res) => {
       data: supplier
     });
   } catch (error) {
-    console.error('Error al obtener proveedor:', error);
     res.status(500).json({
       success: false,
       message: 'Error al obtener proveedor',
@@ -117,7 +119,8 @@ router.post('/', authorize(['admin', 'manager']), async (req, res) => {
       });
     }
 
-    const supplier = new Supplier(supplierData);
+    const SupplierModel = req.tenantModels?.Supplier || Supplier;
+    const supplier = new SupplierModel(supplierData);
     await supplier.save();
 
     res.status(201).json({
@@ -126,7 +129,6 @@ router.post('/', authorize(['admin', 'manager']), async (req, res) => {
       data: supplier
     });
   } catch (error) {
-    console.error('Error al crear proveedor:', error);
     
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map(err => err.message);
@@ -153,8 +155,10 @@ router.put('/:id', authorize(['admin', 'manager']), async (req, res) => {
     const supplierData = req.body;
     const supplierId = req.params.id;
 
+    const SupplierModel = req.tenantModels?.Supplier || Supplier;
+    
     // Verificar si el proveedor existe
-    const existingSupplier = await Supplier.findById(supplierId);
+    const existingSupplier = await SupplierModel.findById(supplierId);
     if (!existingSupplier) {
       return res.status(404).json({
         success: false,
@@ -164,7 +168,7 @@ router.put('/:id', authorize(['admin', 'manager']), async (req, res) => {
 
     // No hay validaciones adicionales necesarias para la nueva estructura
 
-    const updatedSupplier = await Supplier.findByIdAndUpdate(
+    const updatedSupplier = await SupplierModel.findByIdAndUpdate(
       supplierId,
       supplierData,
       { new: true, runValidators: true }
@@ -176,7 +180,6 @@ router.put('/:id', authorize(['admin', 'manager']), async (req, res) => {
       data: updatedSupplier
     });
   } catch (error) {
-    console.error('Error al actualizar proveedor:', error);
     
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map(err => err.message);
@@ -200,7 +203,8 @@ router.put('/:id', authorize(['admin', 'manager']), async (req, res) => {
 // @access  Private (Admin)
 router.delete('/:id', authorize(['admin']), async (req, res) => {
   try {
-    const supplier = await Supplier.findById(req.params.id);
+    const SupplierModel = req.tenantModels?.Supplier || Supplier;
+    const supplier = await SupplierModel.findById(req.params.id);
     
     if (!supplier) {
       return res.status(404).json({
@@ -219,7 +223,6 @@ router.delete('/:id', authorize(['admin']), async (req, res) => {
       message: 'Proveedor eliminado exitosamente'
     });
   } catch (error) {
-    console.error('Error al eliminar proveedor:', error);
     res.status(500).json({
       success: false,
       message: 'Error al eliminar proveedor',
@@ -243,7 +246,8 @@ router.patch('/:id/status', authorize(['admin', 'manager']), async (req, res) =>
       });
     }
 
-    const supplier = await Supplier.findByIdAndUpdate(
+    const SupplierModel = req.tenantModels?.Supplier || Supplier;
+    const supplier = await SupplierModel.findByIdAndUpdate(
       supplierId,
       { status },
       { new: true, runValidators: true }
@@ -262,7 +266,6 @@ router.patch('/:id/status', authorize(['admin', 'manager']), async (req, res) =>
       data: supplier
     });
   } catch (error) {
-    console.error('Error al cambiar estado del proveedor:', error);
     res.status(500).json({
       success: false,
       message: 'Error al cambiar estado del proveedor',
@@ -276,14 +279,14 @@ router.patch('/:id/status', authorize(['admin', 'manager']), async (req, res) =>
 // @access  Private
 router.get('/stats/overview', async (req, res) => {
   try {
-    const stats = await Supplier.getStats();
+    const SupplierModel = req.tenantModels?.Supplier || Supplier;
+    const stats = await SupplierModel.getStats();
     
     res.json({
       success: true,
       data: stats
     });
   } catch (error) {
-    console.error('Error al obtener estadísticas:', error);
     res.status(500).json({
       success: false,
       message: 'Error al obtener estadísticas',
@@ -298,14 +301,14 @@ router.get('/stats/overview', async (req, res) => {
 router.get('/category/:category', async (req, res) => {
   try {
     const { category } = req.params;
-    const suppliers = await Supplier.findByCategory(category).select('-__v');
+    const SupplierModel = req.tenantModels?.Supplier || Supplier;
+    const suppliers = await SupplierModel.findByCategory(category).select('-__v');
     
     res.json({
       success: true,
       data: suppliers
     });
   } catch (error) {
-    console.error('Error al buscar proveedores por categoría:', error);
     res.status(500).json({
       success: false,
       message: 'Error al buscar proveedores por categoría',
@@ -320,14 +323,14 @@ router.get('/category/:category', async (req, res) => {
 router.get('/status/:status', async (req, res) => {
   try {
     const { status } = req.params;
-    const suppliers = await Supplier.findByStatus(status).select('-__v');
+    const SupplierModel = req.tenantModels?.Supplier || Supplier;
+    const suppliers = await SupplierModel.findByStatus(status).select('-__v');
     
     res.json({
       success: true,
       data: suppliers
     });
   } catch (error) {
-    console.error('Error al buscar proveedores por estado:', error);
     res.status(500).json({
       success: false,
       message: 'Error al buscar proveedores por estado',

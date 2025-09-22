@@ -6,16 +6,26 @@ import Sale from '../models/Sale.js';
 import Purchase from '../models/Purchase.js';
 import Batch from '../models/Batch.js';
 import { protect } from '../middleware/auth.js';
+import { identifyTenant, requireTenant } from '../middleware/tenant.js';
 
 const router = express.Router();
 
 // @desc    Obtener estadísticas generales del dashboard
 // @route   GET /api/dashboard/stats
 // @access  Private
-router.get('/stats', protect, async (req, res) => {
+router.get('/stats', protect, identifyTenant, async (req, res) => {
   try {
+    // Usar modelos del tenant si está disponible, sino usar modelos principales
+    const ProductModel = req.tenantModels?.Product || Product;
+    const ClientModel = req.tenantModels?.Client || Client;
+    const SupplierModel = req.tenantModels?.Supplier || Supplier;
+    const SaleModel = req.tenantModels?.Sale || Sale;
+    const PurchaseModel = req.tenantModels?.Purchase || Purchase;
+    const BatchModel = req.tenantModels?.Batch || Batch;
+
+
     // Estadísticas de productos
-    const productsStats = await Product.aggregate([
+    const productsStats = await ProductModel.aggregate([
       {
         $group: {
           _id: '$category',
@@ -29,22 +39,22 @@ router.get('/stats', protect, async (req, res) => {
       productsByCategory[stat._id] = stat.count;
     });
 
-    const totalProducts = await Product.countDocuments();
+    const totalProducts = await ProductModel.countDocuments();
 
     // Estadísticas de clientes
-    const totalClients = await Client.countDocuments();
-    const activeClients = await Client.countDocuments({ isActive: true });
+    const totalClients = await ClientModel.countDocuments();
+    const activeClients = await ClientModel.countDocuments({ isActive: true });
 
     // Estadísticas de proveedores
-    const totalSuppliers = await Supplier.countDocuments();
-    const activeSuppliers = await Supplier.countDocuments({ isActive: true });
+    const totalSuppliers = await SupplierModel.countDocuments();
+    const activeSuppliers = await SupplierModel.countDocuments({ isActive: true });
 
     // Estadísticas de ventas del mes actual
     const currentDate = new Date();
     const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
     const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
 
-    const monthlySales = await Sale.aggregate([
+    const monthlySales = await SaleModel.aggregate([
       {
         $match: {
           createdAt: { $gte: startOfMonth, $lte: endOfMonth }
@@ -64,7 +74,7 @@ router.get('/stats', protect, async (req, res) => {
     const monthlySalesData = monthlySales[0] || { total: 0, totalCost: 0, profit: 0, count: 0 };
 
     // Estadísticas de compras del mes
-    const monthlyPurchases = await Purchase.aggregate([
+    const monthlyPurchases = await PurchaseModel.aggregate([
       {
         $match: {
           createdAt: { $gte: startOfMonth, $lte: endOfMonth }
@@ -82,8 +92,8 @@ router.get('/stats', protect, async (req, res) => {
     const monthlyPurchasesData = monthlyPurchases[0] || { total: 0, count: 0 };
 
     // Estadísticas de lotes
-    const totalBatches = await Batch.countDocuments({ isActive: true });
-    const expiringSoon = await Batch.countDocuments({
+    const totalBatches = await BatchModel.countDocuments({ isActive: true });
+    const expiringSoon = await BatchModel.countDocuments({
       isActive: true,
       expirationDate: { $lte: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) }
     });
@@ -92,12 +102,6 @@ router.get('/stats', protect, async (req, res) => {
     const profit = monthlySalesData.profit;
     const profitMargin = monthlySalesData.totalCost > 0 ? (profit / monthlySalesData.totalCost) * 100 : 0;
     
-    console.log(`[DASHBOARD] Estadísticas de ventas del mes:`);
-    console.log(`[DASHBOARD] - Total ventas: $${monthlySalesData.total}`);
-    console.log(`[DASHBOARD] - Costo total: $${monthlySalesData.totalCost}`);
-    console.log(`[DASHBOARD] - Ganancia: $${profit}`);
-    console.log(`[DASHBOARD] - Margen de ganancia: ${profitMargin.toFixed(2)}%`);
-    console.log(`[DASHBOARD] - Número de ventas: ${monthlySalesData.count}`);
 
     res.json({
       success: true,
@@ -134,7 +138,6 @@ router.get('/stats', protect, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error al obtener estadísticas del dashboard:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -142,11 +145,14 @@ router.get('/stats', protect, async (req, res) => {
 // @desc    Obtener top productos vendidos
 // @route   GET /api/dashboard/top-products
 // @access  Private
-router.get('/top-products', protect, async (req, res) => {
+router.get('/top-products', protect, identifyTenant, async (req, res) => {
   try {
     const { limit = 6 } = req.query;
     
-    const topProducts = await Sale.aggregate([
+    // Usar modelo del tenant si está disponible
+    const SaleModel = req.tenantModels?.Sale || Sale;
+    
+    const topProducts = await SaleModel.aggregate([
       {
         $unwind: '$items'
       },
@@ -171,7 +177,6 @@ router.get('/top-products', protect, async (req, res) => {
       data: topProducts
     });
   } catch (error) {
-    console.error('Error al obtener top productos:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -179,11 +184,14 @@ router.get('/top-products', protect, async (req, res) => {
 // @desc    Obtener datos mensuales de ventas
 // @route   GET /api/dashboard/monthly-sales
 // @access  Private
-router.get('/monthly-sales', protect, async (req, res) => {
+router.get('/monthly-sales', protect, identifyTenant, async (req, res) => {
   try {
     const { year = new Date().getFullYear() } = req.query;
     
-    const monthlyData = await Sale.aggregate([
+    // Usar modelo del tenant si está disponible
+    const SaleModel = req.tenantModels?.Sale || Sale;
+    
+    const monthlyData = await SaleModel.aggregate([
       {
         $match: {
           createdAt: {
@@ -231,7 +239,6 @@ router.get('/monthly-sales', protect, async (req, res) => {
       data: months
     });
   } catch (error) {
-    console.error('Error al obtener datos mensuales:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -239,14 +246,18 @@ router.get('/monthly-sales', protect, async (req, res) => {
 // @desc    Obtener estadísticas de distribución de inversión
 // @route   GET /api/dashboard/investment-distribution
 // @access  Private
-router.get('/investment-distribution', protect, async (req, res) => {
+router.get('/investment-distribution', protect, identifyTenant, async (req, res) => {
   try {
     const { year } = req.query;
     const startDate = new Date(year || new Date().getFullYear(), 0, 1);
     const endDate = new Date(year || new Date().getFullYear(), 11, 31, 23, 59, 59);
 
+    // Usar modelos del tenant si están disponibles
+    const PurchaseModel = req.tenantModels?.Purchase || Purchase;
+    const ProductModel = req.tenantModels?.Product || Product;
+
     // Obtener compras por categoría de producto
-    const investmentByCategory = await Purchase.aggregate([
+    const investmentByCategory = await PurchaseModel.aggregate([
       {
         $match: {
           createdAt: { $gte: startDate, $lte: endDate },
@@ -258,7 +269,7 @@ router.get('/investment-distribution', protect, async (req, res) => {
       },
       {
         $lookup: {
-          from: 'products',
+          from: req.tenant ? 'products' : 'products',
           localField: 'items.product',
           foreignField: '_id',
           as: 'productInfo'
@@ -317,7 +328,6 @@ router.get('/investment-distribution', protect, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error al obtener distribución de inversión:', error);
     res.status(500).json({
       success: false,
       message: 'Error al obtener distribución de inversión',

@@ -12,7 +12,6 @@ router.get('/', protect, async (req, res) => {
     const configs = await Config.find({ isActive: true }).sort({ key: 1 });
     res.json(configs);
   } catch (error) {
-    console.error('Error al obtener configuraciones:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -28,7 +27,6 @@ router.get('/:key', protect, async (req, res) => {
     }
     res.json({ key: req.params.key, value: config });
   } catch (error) {
-    console.error('Error al obtener configuración:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -47,7 +45,6 @@ router.post('/', protect, async (req, res) => {
     const config = await Config.setByKey(key, value, type, description, req.user.id);
     res.status(201).json(config);
   } catch (error) {
-    console.error('Error al crear/actualizar configuración:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -66,7 +63,6 @@ router.put('/:key', protect, async (req, res) => {
     const config = await Config.setByKey(req.params.key, value, type, description, req.user.id);
     res.json(config);
   } catch (error) {
-    console.error('Error al actualizar configuración:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -88,7 +84,6 @@ router.delete('/:key', protect, async (req, res) => {
 
     res.json({ message: 'Configuración eliminada correctamente' });
   } catch (error) {
-    console.error('Error al eliminar configuración:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -101,7 +96,6 @@ router.get('/values/all', protect, async (req, res) => {
     const configs = await Config.getAllActive();
     res.json(configs);
   } catch (error) {
-    console.error('Error al obtener configuraciones:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });

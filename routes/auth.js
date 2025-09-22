@@ -54,7 +54,6 @@ router.post('/register', async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('Error en registro:', error);
     res.status(500).json({ 
       success: false,
       message: 'Error en el servidor',
@@ -85,8 +84,8 @@ router.post('/login', async (req, res) => {
       });
     }
 
-    // Buscar usuario por email
-    const user = await User.findOne({ email });
+    // Buscar usuario por email con información del tenant
+    const user = await User.findOne({ email }).populate('tenantId', 'name subdomain _id');
     
     if (user && (await user.comparePassword(password))) {
       // Actualizar último login
@@ -112,6 +111,7 @@ router.post('/login', async (req, res) => {
           role: user.role,
           firstName: user.firstName,
           lastName: user.lastName,
+          tenant: user.tenantId,
           token: generateToken(user._id, user.tenantId)
         }
       });
@@ -122,7 +122,6 @@ router.post('/login', async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('Error en login:', error);
     res.status(500).json({ 
       success: false,
       message: 'Error en el servidor',
@@ -136,7 +135,7 @@ router.post('/login', async (req, res) => {
 // @access  Private
 router.get('/profile', protect, async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select('-password');
+    const user = await User.findById(req.user._id).select('-password').populate('tenantId', 'name subdomain _id');
     if (user) {
       res.json({
         success: true,
@@ -149,7 +148,6 @@ router.get('/profile', protect, async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('Error al obtener perfil:', error);
     res.status(500).json({ 
       success: false,
       message: 'Error en el servidor',
@@ -196,7 +194,6 @@ router.put('/profile', protect, async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('Error al actualizar perfil:', error);
     res.status(500).json({ 
       success: false,
       message: 'Error en el servidor',
@@ -229,7 +226,6 @@ router.put('/change-password', protect, async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('Error al cambiar contraseña:', error);
     res.status(500).json({ 
       success: false,
       message: 'Error en el servidor',
@@ -266,7 +262,6 @@ router.post('/forgot-password', async (req, res) => {
     // Generar token único
     const resetToken = generateResetToken();
     
-    console.log(resetToken);
     
     // Crear registro de recuperación
     const passwordReset = await PasswordReset.create({
@@ -296,7 +291,6 @@ router.post('/forgot-password', async (req, res) => {
     }
 
   } catch (error) {
-    console.error('Error en forgot-password:', error);
     res.status(500).json({
       success: false,
       message: 'Error en el servidor',
@@ -365,7 +359,6 @@ router.post('/reset-password', async (req, res) => {
         user.firstName || user.username
       );
     } catch (emailError) {
-      console.error('Error al enviar correo de confirmación:', emailError);
       // No fallar si el correo de confirmación falla
     }
 
@@ -375,7 +368,6 @@ router.post('/reset-password', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error en reset-password:', error);
     res.status(500).json({
       success: false,
       message: 'Error en el servidor',

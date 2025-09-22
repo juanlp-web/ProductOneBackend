@@ -6,7 +6,6 @@ import mongoose from 'mongoose';
 export const checkDBHealth = (req, res, next) => {
   // Verificar estado de la conexión principal
   if (mongoose.connection.readyState !== 1) {
-    console.warn('⚠️ Base de datos principal no está conectada');
     
     // Si es una petición de salud o auth, permitir pasar
     if (req.path === '/' || req.path === '/health' || req.path.startsWith('/api/auth/login')) {

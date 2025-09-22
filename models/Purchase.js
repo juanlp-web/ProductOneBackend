@@ -4,11 +4,33 @@ const purchaseItemSchema = new mongoose.Schema({
   product: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Product',
-    required: [true, 'El producto es requerido']
+    required: false // Hacer opcional para pagos contables
   },
   productName: {
     type: String,
     required: [true, 'El nombre del producto es requerido']
+  },
+  itemType: {
+    type: String,
+    enum: ['product', 'account'],
+    default: 'product'
+  },
+  accountId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account',
+    required: false
+  },
+  accountCode: {
+    type: String,
+    required: false
+  },
+  accountName: {
+    type: String,
+    required: false
+  },
+  accountType: {
+    type: String,
+    required: false
   },
   quantity: {
     type: Number,
@@ -17,18 +39,27 @@ const purchaseItemSchema = new mongoose.Schema({
   },
   unit: {
     type: String,
-    required: [true, 'La unidad de medida es requerida'],
+    required: false, // Hacer opcional para pagos contables
     enum: ['kg', 'g', 'l', 'ml', 'unidad', 'docena', 'caja', 'metro', 'cm']
+  },
+  unitPrice: {
+    type: Number,
+    required: false, // Hacer opcional para pagos contables
+    min: [0, 'El precio no puede ser negativo']
   },
   price: {
     type: Number,
-    required: [true, 'El precio unitario es requerido'],
+    required: false, // Hacer opcional para pagos contables
     min: [0, 'El precio no puede ser negativo']
   },
   total: {
     type: Number,
     required: [true, 'El total es requerido'],
     min: [0, 'El total no puede ser negativo']
+  },
+  description: {
+    type: String,
+    required: false
   },
   batch: {
     type: mongoose.Schema.Types.ObjectId,
@@ -56,11 +87,11 @@ const purchaseSchema = new mongoose.Schema({
   supplier: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Supplier',
-    required: [true, 'El proveedor es requerido']
+    required: false // Hacer opcional para pagos contables
   },
   supplierName: {
     type: String,
-    required: [true, 'El nombre del proveedor es requerido']
+    required: false // Hacer opcional para pagos contables
   },
   items: [purchaseItemSchema],
   total: {
@@ -74,8 +105,58 @@ const purchaseSchema = new mongoose.Schema({
   },
   paymentMethod: {
     type: String,
-    required: [true, 'El método de pago es requerido'],
+    required: false,
     enum: ['Efectivo', 'Transferencia Bancaria', 'Tarjeta de Crédito', 'Tarjeta de Débito', 'Cheque']
+  },
+  bankAccount: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Bank',
+    required: false
+  },
+  partialPayments: [{
+    amount: {
+      type: Number,
+      required: true,
+      min: [0, 'El monto debe ser mayor a 0']
+    },
+    paymentMethod: {
+      type: String,
+      required: true,
+      enum: ['Efectivo', 'Transferencia Bancaria', 'Tarjeta de Crédito', 'Tarjeta de Débito', 'Cheque']
+    },
+    bankAccount: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Bank',
+      required: false
+    },
+    paymentDate: {
+      type: Date,
+      default: Date.now
+    },
+    notes: {
+      type: String,
+      maxlength: [200, 'Las notas no pueden tener más de 200 caracteres']
+    },
+    createdBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    }
+  }],
+  paidAmount: {
+    type: Number,
+    default: 0,
+    min: [0, 'El monto pagado no puede ser negativo']
+  },
+  remainingAmount: {
+    type: Number,
+    required: false,
+    min: [0, 'El monto restante no puede ser negativo']
+  },
+  paymentStatus: {
+    type: String,
+    enum: ['pendiente', 'parcial', 'pagado', 'cancelado'],
+    default: 'pendiente'
   },
   orderDate: {
     type: Date,
@@ -90,8 +171,14 @@ const purchaseSchema = new mongoose.Schema({
   },
   category: {
     type: String,
-    required: [true, 'La categoría es requerida'],
-    enum: ['Materia Prima', 'Envases', 'Químicos', 'Equipos', 'Herramientas', 'Otros']
+    required: false,
+    enum: [
+      // Categorías de compras tradicionales
+      'Materia Prima', 'Envases', 'Químicos', 'Equipos', 'Herramientas', 'Otros',
+      // Categorías de gastos contables
+      'renta', 'servicios', 'mantenimiento', 'seguros', 'impuestos', 'gastos_generales', 'marketing', 'administrativos', 'consultoria', 'otros'
+    ],
+    default: 'Materia Prima'
   },
   notes: {
     type: String,
@@ -100,6 +187,37 @@ const purchaseSchema = new mongoose.Schema({
   isActive: {
     type: Boolean,
     default: true
+  },
+  // Campos para pagos contables
+  isAccountPayment: {
+    type: Boolean,
+    default: false
+  },
+  accountPaymentId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'BankTransaction',
+    required: false
+  },
+  accountId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Account',
+    required: false
+  },
+  accountCode: {
+    type: String,
+    required: false
+  },
+  accountName: {
+    type: String,
+    required: false
+  },
+  accountType: {
+    type: String,
+    required: false
+  },
+  reference: {
+    type: String,
+    required: false
   }
 }, {
   timestamps: true,
@@ -136,11 +254,45 @@ purchaseSchema.pre('validate', function(next) {
   next();
 });
 
-// Middleware pre-save para calcular total
+// Middleware pre-validate para inicializar campos de pago
+purchaseSchema.pre('validate', function(next) {
+  // Inicializar campos de pago para nuevas compras
+  if (this.isNew) {
+    this.paidAmount = 0;
+    // Calcular total si no se proporciona
+    if (!this.total && this.items.length > 0) {
+      this.total = this.items.reduce((sum, item) => sum + item.total, 0);
+    }
+    this.remainingAmount = this.total || 0;
+    this.paymentStatus = 'pendiente';
+  }
+  next();
+});
+
+// Middleware pre-save para calcular total y montos de pago
 purchaseSchema.pre('save', function(next) {
   // Calcular total si no se proporciona
   if (!this.total && this.items.length > 0) {
     this.total = this.items.reduce((sum, item) => sum + item.total, 0);
+  }
+  
+  // Calcular montos de pago
+  if (this.partialPayments && this.partialPayments.length > 0) {
+    this.paidAmount = this.partialPayments.reduce((sum, payment) => sum + payment.amount, 0);
+    this.remainingAmount = Math.max(0, this.total - this.paidAmount);
+    
+    // Actualizar estado de pago
+    if (this.paidAmount >= this.total) {
+      this.paymentStatus = 'pagado';
+    } else if (this.paidAmount > 0) {
+      this.paymentStatus = 'parcial';
+    } else {
+      this.paymentStatus = 'pendiente';
+    }
+  } else {
+    this.paidAmount = 0;
+    this.remainingAmount = this.total || 0;
+    this.paymentStatus = 'pendiente';
   }
   
   next();

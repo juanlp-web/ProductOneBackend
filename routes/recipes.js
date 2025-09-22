@@ -3,11 +3,12 @@ import Recipe from '../models/Recipe.js';
 import Product from '../models/Product.js';
 import Batch from '../models/Batch.js';
 import { protect, manager } from '../middleware/auth.js';
+import { identifyTenant } from '../middleware/tenant.js';
 
 const router = express.Router();
 
 // Función auxiliar para consumir ingredientes de una receta
-const consumeIngredients = async (recipe) => {
+const consumeIngredients = async (recipe, ProductModel) => {
   const consumedIngredients = []
   const errors = []
   
@@ -15,7 +16,7 @@ const consumeIngredients = async (recipe) => {
     // Solo procesar ingredientes que tengan un producto asignado
     if (ingredient.product) {
       try {
-        const product = await Product.findById(ingredient.product)
+        const product = await ProductModel.findById(ingredient.product)
         if (!product) {
           errors.push(`Producto ${ingredient.name || ingredient.product} no encontrado`)
           continue
@@ -50,7 +51,7 @@ const consumeIngredients = async (recipe) => {
 }
 
 // Función auxiliar para restaurar ingredientes de una receta
-const restoreIngredients = async (recipe) => {
+const restoreIngredients = async (recipe, ProductModel) => {
   const restoredIngredients = []
   const errors = []
   
@@ -58,7 +59,7 @@ const restoreIngredients = async (recipe) => {
     // Solo procesar ingredientes que tengan un producto asignado
     if (ingredient.product) {
       try {
-        const product = await Product.findById(ingredient.product)
+        const product = await ProductModel.findById(ingredient.product)
         if (!product) {
           errors.push(`Producto ${ingredient.name || ingredient.product} no encontrado`)
           continue
@@ -90,7 +91,7 @@ const restoreIngredients = async (recipe) => {
 // @desc    Obtener todas las recetas
 // @route   GET /api/recipes
 // @access  Private
-router.get('/', protect, async (req, res) => {
+router.get('/', protect, identifyTenant, async (req, res) => {
   try {
     const { page = 1, limit = 10, search, category, difficulty, status } = req.query;
     
@@ -112,15 +113,18 @@ router.get('/', protect, async (req, res) => {
       query.status = status;
     }
     
-    const recipes = await Recipe.find(query)
-      .populate('ingredients.product', 'name sku')
-      .populate('productToProduce', 'name sku')
+    const RecipeModel = req.tenantModels?.Recipe || Recipe;
+    const ProductModel = req.tenantModels?.Product || Product;
+    
+    const recipes = await RecipeModel.find(query)
+      .populate('ingredients.product', 'name sku', ProductModel)
+      .populate('productToProduce', 'name sku', ProductModel)
       .populate('createdBy', 'name')
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .sort({ createdAt: -1 });
     
-    const total = await Recipe.countDocuments(query);
+    const total = await RecipeModel.countDocuments(query);
     
     res.json({
       recipes,
@@ -129,7 +133,6 @@ router.get('/', protect, async (req, res) => {
       total
     });
   } catch (error) {
-    console.error('Error al obtener recetas:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -137,11 +140,14 @@ router.get('/', protect, async (req, res) => {
 // @desc    Obtener receta por ID
 // @route   GET /api/recipes/:id
 // @access  Private
-router.get('/:id', protect, async (req, res) => {
+router.get('/:id', protect, identifyTenant, async (req, res) => {
   try {
-    const recipe = await Recipe.findById(req.params.id)
-      .populate('ingredients.product', 'name sku price cost stock')
-      .populate('productToProduce', 'name sku')
+    const RecipeModel = req.tenantModels?.Recipe || Recipe;
+    const ProductModel = req.tenantModels?.Product || Product;
+    
+    const recipe = await RecipeModel.findById(req.params.id)
+      .populate('ingredients.product', 'name sku price cost stock', ProductModel)
+      .populate('productToProduce', 'name sku', ProductModel)
       .populate('createdBy', 'name');
     
     if (recipe) {
@@ -150,7 +156,6 @@ router.get('/:id', protect, async (req, res) => {
       res.status(404).json({ message: 'Receta no encontrada' });
     }
   } catch (error) {
-    console.error('Error al obtener receta:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -158,17 +163,17 @@ router.get('/:id', protect, async (req, res) => {
 // @desc    Crear receta
 // @route   POST /api/recipes
 // @access  Private (Manager/Admin)
-router.post('/', protect, manager, async (req, res) => {
+router.post('/', protect, identifyTenant, manager, async (req, res) => {
   try {
     const recipeData = {
       ...req.body,
       createdBy: req.user._id
     };
     
-    const recipe = await Recipe.create(recipeData);
+    const RecipeModel = req.tenantModels?.Recipe || Recipe;
+    const recipe = await RecipeModel.create(recipeData);
     res.status(201).json(recipe);
   } catch (error) {
-    console.error('Error al crear receta:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -176,9 +181,10 @@ router.post('/', protect, manager, async (req, res) => {
 // @desc    Actualizar receta
 // @route   PUT /api/recipes/:id
 // @access  Private (Manager/Admin)
-router.put('/:id', protect, manager, async (req, res) => {
+router.put('/:id', protect, identifyTenant, manager, async (req, res) => {
   try {
-    const recipe = await Recipe.findByIdAndUpdate(
+    const RecipeModel = req.tenantModels?.Recipe || Recipe;
+    const recipe = await RecipeModel.findByIdAndUpdate(
       req.params.id,
       req.body,
       { new: true, runValidators: true }
@@ -190,7 +196,6 @@ router.put('/:id', protect, manager, async (req, res) => {
       res.status(404).json({ message: 'Receta no encontrada' });
     }
   } catch (error) {
-    console.error('Error al actualizar receta:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -198,9 +203,10 @@ router.put('/:id', protect, manager, async (req, res) => {
 // @desc    Eliminar receta
 // @route   DELETE /api/recipes/:id
 // @access  Private (Manager/Admin)
-router.delete('/:id', protect, manager, async (req, res) => {
+router.delete('/:id', protect, identifyTenant, manager, async (req, res) => {
   try {
-    const recipe = await Recipe.findByIdAndUpdate(
+    const RecipeModel = req.tenantModels?.Recipe || Recipe;
+    const recipe = await RecipeModel.findByIdAndUpdate(
       req.params.id,
       { isActive: false },
       { new: true }
@@ -212,7 +218,6 @@ router.delete('/:id', protect, manager, async (req, res) => {
       res.status(404).json({ message: 'Receta no encontrada' });
     }
   } catch (error) {
-    console.error('Error al eliminar receta:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -220,10 +225,13 @@ router.delete('/:id', protect, manager, async (req, res) => {
 // @desc    Calcular costo de receta
 // @route   GET /api/recipes/:id/cost
 // @access  Private
-router.get('/:id/cost', protect, async (req, res) => {
+router.get('/:id/cost', protect, identifyTenant, async (req, res) => {
   try {
-    const recipe = await Recipe.findById(req.params.id)
-      .populate('ingredients.product', 'cost');
+    const RecipeModel = req.tenantModels?.Recipe || Recipe;
+    const ProductModel = req.tenantModels?.Product || Product;
+    
+    const recipe = await RecipeModel.findById(req.params.id)
+      .populate('ingredients.product', 'cost', ProductModel);
     
     if (!recipe) {
       return res.status(404).json({ message: 'Receta no encontrada' });
@@ -243,7 +251,6 @@ router.get('/:id/cost', protect, async (req, res) => {
       costPerServing: totalCost / (recipe.batchInfo?.quantity || recipe.servings || 1)
     });
   } catch (error) {
-    console.error('Error al calcular costo:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -251,7 +258,7 @@ router.get('/:id/cost', protect, async (req, res) => {
 // @desc    Cambiar estado de receta
 // @route   PUT /api/recipes/:id/status
 // @access  Private (Manager/Admin)
-router.put('/:id/status', protect, manager, async (req, res) => {
+router.put('/:id/status', protect, identifyTenant, manager, async (req, res) => {
   try {
     const { status } = req.body;
     
@@ -259,8 +266,12 @@ router.put('/:id/status', protect, manager, async (req, res) => {
       return res.status(400).json({ message: 'Estado no válido' });
     }
     
-    const recipe = await Recipe.findById(req.params.id)
-      .populate('productToProduce', 'name sku stock');
+    const RecipeModel = req.tenantModels?.Recipe || Recipe;
+    const ProductModel = req.tenantModels?.Product || Product;
+    const BatchModel = req.tenantModels?.Batch || Batch;
+    
+    const recipe = await RecipeModel.findById(req.params.id)
+      .populate('productToProduce', 'name sku stock', ProductModel);
     
     if (!recipe) {
       return res.status(404).json({ message: 'Receta no encontrada' });
@@ -275,7 +286,7 @@ router.put('/:id/status', protect, manager, async (req, res) => {
         return res.status(400).json({ message: 'La receta no tiene un producto asociado para actualizar el stock' });
       }
 
-      const product = await Product.findById(recipe.productToProduce._id);
+      const product = await ProductModel.findById(recipe.productToProduce._id);
       if (!product) {
         return res.status(404).json({ message: 'Producto no encontrado' });
       }
@@ -290,7 +301,7 @@ router.put('/:id/status', protect, manager, async (req, res) => {
       }
 
       // Restaurar ingredientes consumidos
-      const { restoredIngredients, errors: restoreErrors } = await restoreIngredients(recipe);
+      const { restoredIngredients, errors: restoreErrors } = await restoreIngredients(recipe, ProductModel);
       
       if (restoreErrors.length > 0) {
         return res.status(500).json({ 
@@ -300,7 +311,7 @@ router.put('/:id/status', protect, manager, async (req, res) => {
       }
 
       // Buscar y eliminar lotes asociados a esta receta
-      const batchesToRemove = await Batch.find({
+      const batchesToRemove = await BatchModel.find({
         recipe: recipe._id,
         isActive: true
       });
@@ -352,7 +363,7 @@ router.put('/:id/status', protect, manager, async (req, res) => {
       }
 
       // Primero verificar que haya stock suficiente para todos los ingredientes
-      const { consumedIngredients, errors: ingredientErrors } = await consumeIngredients(recipe);
+      const { consumedIngredients, errors: ingredientErrors } = await consumeIngredients(recipe, ProductModel);
       
       if (ingredientErrors.length > 0) {
         return res.status(400).json({ 
@@ -362,7 +373,7 @@ router.put('/:id/status', protect, manager, async (req, res) => {
       }
 
       // Obtener el producto a producir
-      const product = await Product.findById(recipe.productToProduce._id);
+      const product = await ProductModel.findById(recipe.productToProduce._id);
       if (!product) {
         return res.status(404).json({ message: 'Producto no encontrado' });
       }
@@ -385,15 +396,10 @@ router.put('/:id/status', protect, manager, async (req, res) => {
         createdBy: req.user._id
       };
 
-      const batch = await Batch.create(batchData);
+      const batch = await BatchModel.create(batchData);
 
       // Calcular costo promedio del producto
       let newCost = recipe.cost || 0;
-      console.log(`[RECIPE] Calculando costo promedio para producto ${product.name}:`);
-      console.log(`[RECIPE] - Costo actual del producto: ${product.cost}`);
-      console.log(`[RECIPE] - Stock actual del producto: ${product.stock}`);
-      console.log(`[RECIPE] - Costo de la receta: ${recipe.cost}`);
-      console.log(`[RECIPE] - Cantidad a producir: ${recipe.batchInfo.quantity}`);
       
       if (product.stock > 0 && product.cost && product.cost > 0) {
         // Calcular promedio ponderado del costo
@@ -402,12 +408,7 @@ router.put('/:id/status', protect, manager, async (req, res) => {
         const totalStock = product.stock + recipe.batchInfo.quantity;
         newCost = (totalCurrentValue + totalNewValue) / totalStock;
         
-        console.log(`[RECIPE] - Valor total actual: ${totalCurrentValue}`);
-        console.log(`[RECIPE] - Valor total nuevo: ${totalNewValue}`);
-        console.log(`[RECIPE] - Stock total: ${totalStock}`);
-        console.log(`[RECIPE] - Nuevo costo promedio: ${newCost}`);
       } else {
-        console.log(`[RECIPE] - Asignando costo directo (sin promedio): ${newCost}`);
       }
 
       // Aumentar stock del producto producido y actualizar costo
@@ -421,7 +422,7 @@ router.put('/:id/status', protect, manager, async (req, res) => {
         await recipe.save();
       } catch (error) {
         // Si hay error de validación, restaurar ingredientes y stock
-        await restoreIngredients(recipe);
+        await restoreIngredients(recipe, ProductModel);
         product.stock -= recipe.batchInfo.quantity;
         await product.save();
         
@@ -463,7 +464,6 @@ router.put('/:id/status', protect, manager, async (req, res) => {
     });
     
   } catch (error) {
-    console.error('Error al cambiar estado de receta:', error);
     res.status(500).json({ message: 'Error interno del servidor' });
   }
 });

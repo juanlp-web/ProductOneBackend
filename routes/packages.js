@@ -2,14 +2,17 @@ import express from 'express';
 import Package from '../models/Package.js';
 import Product from '../models/Product.js';
 import { protect, manager } from '../middleware/auth.js';
+import { identifyTenant } from '../middleware/tenant.js';
 
 const router = express.Router();
 
 // @desc    Obtener todos los paquetes
 // @route   GET /api/packages
 // @access  Private
-router.get('/', protect, async (req, res) => {
+router.get('/', protect, identifyTenant, async (req, res) => {
   try {
+    
+    const PackageModel = req.tenantModels?.Package || Package;
     const { page = 1, limit = 10, search, category, isActive } = req.query;
     
     const query = {};
@@ -30,14 +33,18 @@ router.get('/', protect, async (req, res) => {
       query.isActive = isActive === 'true';
     }
     
-    const packages = await Package.find(query)
-      .populate('items.product', 'name sku price cost stock category')
+    const packages = await PackageModel.find(query)
+      .populate({
+        path: 'items.product',
+        select: 'name sku price cost stock category',
+        model: req.tenantModels?.Product || Product
+      })
       .populate('createdBy', 'name email')
       .limit(limit * 1)
       .skip((page - 1) * limit)
       .sort({ createdAt: -1 });
     
-    const total = await Package.countDocuments(query);
+    const total = await PackageModel.countDocuments(query);
     
     res.json({
       packages,
@@ -46,7 +53,6 @@ router.get('/', protect, async (req, res) => {
       total
     });
   } catch (error) {
-    console.error('Error al obtener paquetes:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -54,10 +60,15 @@ router.get('/', protect, async (req, res) => {
 // @desc    Obtener un paquete por ID
 // @route   GET /api/packages/:id
 // @access  Private
-router.get('/:id', protect, async (req, res) => {
+router.get('/:id', protect, identifyTenant, async (req, res) => {
   try {
-    const packageItem = await Package.findById(req.params.id)
-      .populate('items.product', 'name sku price cost stock category')
+    const PackageModel = req.tenantModels?.Package || Package;
+    const packageItem = await PackageModel.findById(req.params.id)
+      .populate({
+        path: 'items.product',
+        select: 'name sku price cost stock category',
+        model: req.tenantModels?.Product || Product
+      })
       .populate('createdBy', 'name email');
     
     if (packageItem) {
@@ -66,7 +77,6 @@ router.get('/:id', protect, async (req, res) => {
       res.status(404).json({ message: 'Paquete no encontrado' });
     }
   } catch (error) {
-    console.error('Error al obtener paquete:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -74,7 +84,7 @@ router.get('/:id', protect, async (req, res) => {
 // @desc    Crear nuevo paquete
 // @route   POST /api/packages
 // @access  Private (Manager/Admin)
-router.post('/', protect, manager, async (req, res) => {
+router.post('/', protect, identifyTenant, manager, async (req, res) => {
   try {
     const { name, description, sku, category, items, sellingPrice, discount, notes, tags } = req.body;
     
@@ -87,8 +97,9 @@ router.post('/', protect, manager, async (req, res) => {
     let totalCost = 0;
     const processedItems = [];
     
+    const ProductModel = req.tenantModels?.Product || Product;
     for (const item of items) {
-      const product = await Product.findById(item.product);
+      const product = await ProductModel.findById(item.product);
       if (!product) {
         return res.status(400).json({ message: `Producto ${item.product} no encontrado` });
       }
@@ -121,12 +132,16 @@ router.post('/', protect, manager, async (req, res) => {
       createdBy: req.user._id
     };
     
-    const newPackage = await Package.create(packageData);
-    await newPackage.populate('items.product', 'name sku price cost stock category');
+    const PackageModel = req.tenantModels?.Package || Package;
+    const newPackage = await PackageModel.create(packageData);
+    await newPackage.populate({
+      path: 'items.product',
+      select: 'name sku price cost stock category',
+      model: req.tenantModels?.Product || Product
+    });
     
     res.status(201).json(newPackage);
   } catch (error) {
-    console.error('Error al crear paquete:', error);
     if (error.code === 11000) {
       res.status(400).json({ message: 'El SKU del paquete ya existe' });
     } else {
@@ -138,11 +153,12 @@ router.post('/', protect, manager, async (req, res) => {
 // @desc    Actualizar paquete
 // @route   PUT /api/packages/:id
 // @access  Private (Manager/Admin)
-router.put('/:id', protect, manager, async (req, res) => {
+router.put('/:id', protect, identifyTenant, manager, async (req, res) => {
   try {
     const { name, description, sku, category, items, sellingPrice, discount, notes, tags, isActive } = req.body;
     
-    const packageItem = await Package.findById(req.params.id);
+    const PackageModel = req.tenantModels?.Package || Package;
+    const packageItem = await PackageModel.findById(req.params.id);
     if (!packageItem) {
       return res.status(404).json({ message: 'Paquete no encontrado' });
     }
@@ -152,8 +168,9 @@ router.put('/:id', protect, manager, async (req, res) => {
       let totalCost = 0;
       const processedItems = [];
       
+      const ProductModel = req.tenantModels?.Product || Product;
       for (const item of items) {
-        const product = await Product.findById(item.product);
+        const product = await ProductModel.findById(item.product);
         if (!product) {
           return res.status(400).json({ message: `Producto ${item.product} no encontrado` });
         }
@@ -188,11 +205,14 @@ router.put('/:id', protect, manager, async (req, res) => {
     if (isActive !== undefined) packageItem.isActive = isActive;
     
     await packageItem.save();
-    await packageItem.populate('items.product', 'name sku price cost stock category');
+    await packageItem.populate({
+      path: 'items.product',
+      select: 'name sku price cost stock category',
+      model: req.tenantModels?.Product || Product
+    });
     
     res.json(packageItem);
   } catch (error) {
-    console.error('Error al actualizar paquete:', error);
     if (error.code === 11000) {
       res.status(400).json({ message: 'El SKU del paquete ya existe' });
     } else {
@@ -204,9 +224,10 @@ router.put('/:id', protect, manager, async (req, res) => {
 // @desc    Eliminar paquete
 // @route   DELETE /api/packages/:id
 // @access  Private (Manager/Admin)
-router.delete('/:id', protect, manager, async (req, res) => {
+router.delete('/:id', protect, identifyTenant, manager, async (req, res) => {
   try {
-    const packageItem = await Package.findById(req.params.id);
+    const PackageModel = req.tenantModels?.Package || Package;
+    const packageItem = await PackageModel.findById(req.params.id);
     if (!packageItem) {
       return res.status(404).json({ message: 'Paquete no encontrado' });
     }
@@ -217,7 +238,6 @@ router.delete('/:id', protect, manager, async (req, res) => {
     
     res.json({ message: 'Paquete eliminado exitosamente' });
   } catch (error) {
-    console.error('Error al eliminar paquete:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -225,9 +245,10 @@ router.delete('/:id', protect, manager, async (req, res) => {
 // @desc    Verificar disponibilidad de stock de un paquete
 // @route   GET /api/packages/:id/stock-check
 // @access  Private
-router.get('/:id/stock-check', protect, async (req, res) => {
+router.get('/:id/stock-check', protect, identifyTenant, async (req, res) => {
   try {
-    const packageItem = await Package.findById(req.params.id);
+    const PackageModel = req.tenantModels?.Package || Package;
+    const packageItem = await PackageModel.findById(req.params.id);
     if (!packageItem) {
       return res.status(404).json({ message: 'Paquete no encontrado' });
     }
@@ -235,7 +256,6 @@ router.get('/:id/stock-check', protect, async (req, res) => {
     const availability = await packageItem.checkStockAvailability();
     res.json(availability);
   } catch (error) {
-    console.error('Error al verificar stock del paquete:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -243,9 +263,10 @@ router.get('/:id/stock-check', protect, async (req, res) => {
 // @desc    Obtener estadísticas de paquetes
 // @route   GET /api/packages/stats/overview
 // @access  Private
-router.get('/stats/overview', protect, async (req, res) => {
+router.get('/stats/overview', protect, identifyTenant, async (req, res) => {
   try {
-    const stats = await Package.aggregate([
+    const PackageModel = req.tenantModels?.Package || Package;
+    const stats = await PackageModel.aggregate([
       { $match: { isActive: true } },
       {
         $group: {
@@ -258,7 +279,7 @@ router.get('/stats/overview', protect, async (req, res) => {
       }
     ]);
     
-    const categoryStats = await Package.aggregate([
+    const categoryStats = await PackageModel.aggregate([
       { $match: { isActive: true } },
       {
         $group: {
@@ -274,7 +295,6 @@ router.get('/stats/overview', protect, async (req, res) => {
       byCategory: categoryStats
     });
   } catch (error) {
-    console.error('Error al obtener estadísticas de paquetes:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });

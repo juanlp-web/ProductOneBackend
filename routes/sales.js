@@ -4,17 +4,26 @@ import Product from '../models/Product.js';
 import Batch from '../models/Batch.js';
 import Package from '../models/Package.js';
 import Config from '../models/Config.js';
+import Bank from '../models/Bank.js';
+import BankTransaction from '../models/BankTransaction.js';
 import { protect, manager } from '../middleware/auth.js';
+import { identifyTenant } from '../middleware/tenant.js';
 
 const router = express.Router();
 
 // @desc    Obtener paquetes disponibles para ventas
 // @route   GET /api/sales/available-packages
 // @access  Private
-router.get('/available-packages', protect, async (req, res) => {
+router.get('/available-packages', protect, identifyTenant, async (req, res) => {
   try {
-    const packages = await Package.find({ isActive: true })
-      .populate('items.product', 'name sku price cost stock category')
+    
+    const PackageModel = req.tenantModels?.Package || Package;
+    const packages = await PackageModel.find({ isActive: true })
+      .populate({
+        path: 'items.product',
+        select: 'name sku price cost stock category',
+        model: req.tenantModels?.Product || Product
+      })
       .select('name sku category items sellingPrice discount finalPrice profitMargin')
       .lean();
 
@@ -46,7 +55,6 @@ router.get('/available-packages', protect, async (req, res) => {
 
     res.json(availablePackages);
   } catch (error) {
-    console.error('Error al obtener paquetes disponibles:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -54,8 +62,9 @@ router.get('/available-packages', protect, async (req, res) => {
 // @desc    Obtener todas las ventas
 // @route   GET /api/sales
 // @access  Private
-router.get('/', protect, async (req, res) => {
+router.get('/', protect, identifyTenant, async (req, res) => {
   try {
+    const SaleModel = req.tenantModels?.Sale || Sale;
     const { page = 1, limit = 10, startDate, endDate, paymentStatus, client } = req.query;
     
     const query = { isActive: true };
@@ -75,7 +84,7 @@ router.get('/', protect, async (req, res) => {
       query.client = client;
     }
     
-    const sales = await Sale.find(query)
+    const sales = await SaleModel.find(query)
       .populate('client', 'name email')
       .populate('items.product', 'name sku')
       .populate('items.batch', 'batchNumber status currentStock')
@@ -84,7 +93,7 @@ router.get('/', protect, async (req, res) => {
       .skip((page - 1) * limit)
       .sort({ saleDate: -1 });
     
-    const total = await Sale.countDocuments(query);
+    const total = await SaleModel.countDocuments(query);
     
     res.json({
       sales,
@@ -93,7 +102,6 @@ router.get('/', protect, async (req, res) => {
       total
     });
   } catch (error) {
-    console.error('Error al obtener ventas:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -101,9 +109,10 @@ router.get('/', protect, async (req, res) => {
 // @desc    Obtener venta por ID
 // @route   GET /api/sales/:id
 // @access  Private
-router.get('/:id', protect, async (req, res) => {
+router.get('/:id', protect, identifyTenant, async (req, res) => {
   try {
-    const sale = await Sale.findById(req.params.id)
+    const SaleModel = req.tenantModels?.Sale || Sale;
+    const sale = await SaleModel.findById(req.params.id)
       .populate('client', 'name email phone address')
       .populate('items.product', 'name sku price cost')
       .populate('items.batch', 'batchNumber status currentStock expirationDate')
@@ -115,7 +124,6 @@ router.get('/:id', protect, async (req, res) => {
       res.status(404).json({ message: 'Venta no encontrada' });
     }
   } catch (error) {
-    console.error('Error al obtener venta:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -123,7 +131,7 @@ router.get('/:id', protect, async (req, res) => {
 // @desc    Crear venta
 // @route   POST /api/sales
 // @access  Private (Manager/Admin)
-router.post('/', protect, manager, async (req, res) => {
+router.post('/', protect, identifyTenant, manager, async (req, res) => {
   try {
     const { items, client, paymentMethod, notes } = req.body;
     
@@ -138,7 +146,8 @@ router.post('/', protect, manager, async (req, res) => {
       
       // Manejar ventas de paquetes
       if (item.isPackage && item.package) {
-        const packageItem = await Package.findById(item.package);
+        const PackageModel = req.tenantModels?.Package || Package;
+        const packageItem = await PackageModel.findById(item.package);
         if (!packageItem) {
           return res.status(400).json({ message: `Paquete ${item.package} no encontrado` });
         }
@@ -173,7 +182,8 @@ router.post('/', protect, manager, async (req, res) => {
         
       } else if (item.isFromPackage && item.packageId) {
         // Manejar productos que vienen de paquetes
-        const packageItem = await Package.findById(item.packageId);
+        const PackageModel = req.tenantModels?.Package || Package;
+        const packageItem = await PackageModel.findById(item.packageId);
         if (!packageItem) {
           return res.status(400).json({ message: `Paquete ${item.packageId} no encontrado` });
         }
@@ -194,14 +204,16 @@ router.post('/', protect, manager, async (req, res) => {
         }
         
         // Verificar stock del producto individual
-        const product = await Product.findById(item.product);
+        const ProductModel = req.tenantModels?.Product || Product;
+        const product = await ProductModel.findById(item.product);
         if (!product) {
           return res.status(400).json({ message: `Producto ${item.product} no encontrado` });
         }
         
         // Si se especifica un lote, validar y consumir stock del lote
         if (item.batch) {
-          const batch = await Batch.findById(item.batch);
+          const BatchModel = req.tenantModels?.Batch || Batch;
+          const batch = await BatchModel.findById(item.batch);
           if (!batch) {
             return res.status(400).json({ message: `Lote ${item.batch} no encontrado` });
           }
@@ -225,13 +237,13 @@ router.post('/', protect, manager, async (req, res) => {
           }
           
           // Consumir stock del lote
-          await Batch.findByIdAndUpdate(item.batch, {
+          await BatchModel.findByIdAndUpdate(item.batch, {
             $inc: { currentStock: -item.quantity }
           });
           
           // Actualizar estado del lote si se agota
           if (batch.currentStock - item.quantity === 0) {
-            await Batch.findByIdAndUpdate(item.batch, { status: 'agotado' });
+            await BatchModel.findByIdAndUpdate(item.batch, { status: 'agotado' });
           }
         } else {
           // Validación tradicional de stock del producto
@@ -244,7 +256,7 @@ router.post('/', protect, manager, async (req, res) => {
         
         // SIEMPRE actualizar stock del producto principal para productos individuales
         // El lote es solo una subdivisión del inventario total
-        await Product.findByIdAndUpdate(item.product, {
+        await ProductModel.findByIdAndUpdate(item.product, {
           $inc: { stock: -item.quantity }
         });
         
@@ -262,14 +274,16 @@ router.post('/', protect, manager, async (req, res) => {
         
       } else {
         // Lógica tradicional de ventas de productos individuales
-        const product = await Product.findById(item.product);
+        const ProductModel = req.tenantModels?.Product || Product;
+        const product = await ProductModel.findById(item.product);
         if (!product) {
           return res.status(400).json({ message: `Producto ${item.product} no encontrado` });
         }
         
         // Si se especifica un lote, validar y consumir stock del lote
         if (item.batch) {
-          const batch = await Batch.findById(item.batch);
+          const BatchModel = req.tenantModels?.Batch || Batch;
+          const batch = await BatchModel.findById(item.batch);
           if (!batch) {
             return res.status(400).json({ message: `Lote ${item.batch} no encontrado` });
           }
@@ -291,13 +305,13 @@ router.post('/', protect, manager, async (req, res) => {
           }
           
           // Consumir stock del lote
-          await Batch.findByIdAndUpdate(item.batch, {
+          await BatchModel.findByIdAndUpdate(item.batch, {
             $inc: { currentStock: -item.quantity }
           });
           
           // Actualizar estado del lote si se agota
           if (batch.currentStock - item.quantity === 0) {
-            await Batch.findByIdAndUpdate(item.batch, { status: 'agotado' });
+            await BatchModel.findByIdAndUpdate(item.batch, { status: 'agotado' });
           }
         } else {
           // Validación tradicional de stock del producto
@@ -320,7 +334,7 @@ router.post('/', protect, manager, async (req, res) => {
         
         // SIEMPRE actualizar stock del producto principal para productos individuales
         // El lote es solo una subdivisión del inventario total
-        await Product.findByIdAndUpdate(item.product, {
+        await ProductModel.findByIdAndUpdate(item.product, {
           $inc: { stock: -item.quantity }
         });
       }
@@ -330,7 +344,8 @@ router.post('/', protect, manager, async (req, res) => {
     }
     
     // Obtener IVA de la configuración
-    const ivaPercentage = await Config.getByKey('iva_percentage') || 0;
+    const ConfigModel = req.tenantModels?.Config || Config;
+    const ivaPercentage = await ConfigModel.getByKey('iva_percentage') || 0;
     const tax = subtotal * (ivaPercentage / 100);
     const total = subtotal + tax;
     
@@ -338,11 +353,6 @@ router.post('/', protect, manager, async (req, res) => {
     const profit = subtotal - totalCost;
     const profitMargin = totalCost > 0 ? (profit / totalCost) * 100 : 0;
     
-    console.log(`[SALE] Cálculos de ganancia:`);
-    console.log(`[SALE] - Subtotal: $${subtotal}`);
-    console.log(`[SALE] - Costo total: $${totalCost}`);
-    console.log(`[SALE] - Ganancia: $${profit}`);
-    console.log(`[SALE] - Margen de ganancia: ${profitMargin.toFixed(2)}%`);
     
     const saleData = {
       invoiceNumber: generateInvoiceNumber(),
@@ -359,10 +369,11 @@ router.post('/', protect, manager, async (req, res) => {
       createdBy: req.user._id
     };
     
-    const sale = await Sale.create(saleData);
+    const SaleModel = req.tenantModels?.Sale || Sale;
+    const sale = await SaleModel.create(saleData);
     
     // Populate para la respuesta
-    const populatedSale = await Sale.findById(sale._id)
+    const populatedSale = await SaleModel.findById(sale._id)
       .populate('client', 'name email')
       .populate('items.product', 'name sku')
       .populate('items.batch', 'batchNumber status currentStock')
@@ -370,7 +381,6 @@ router.post('/', protect, manager, async (req, res) => {
     
     res.status(201).json(populatedSale);
   } catch (error) {
-    console.error('Error al crear venta:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -378,11 +388,12 @@ router.post('/', protect, manager, async (req, res) => {
 // @desc    Actualizar estado de pago
 // @route   PUT /api/sales/:id/payment-status
 // @access  Private
-router.put('/:id/payment-status', protect, async (req, res) => {
+router.put('/:id/payment-status', protect, identifyTenant, async (req, res) => {
   try {
     const { paymentStatus } = req.body;
     
-    const sale = await Sale.findByIdAndUpdate(
+    const SaleModel = req.tenantModels?.Sale || Sale;
+    const sale = await SaleModel.findByIdAndUpdate(
       req.params.id,
       { paymentStatus },
       { new: true }
@@ -394,7 +405,6 @@ router.put('/:id/payment-status', protect, async (req, res) => {
       res.status(404).json({ message: 'Venta no encontrada' });
     }
   } catch (error) {
-    console.error('Error al actualizar estado de pago:', error);
     res.status(500).json({ message: 'Error en el servidor' });
   }
 });
@@ -402,7 +412,7 @@ router.put('/:id/payment-status', protect, async (req, res) => {
 // @desc    Obtener estadísticas de ventas
 // @route   GET /api/sales/stats/summary
 // @access  Private
-router.get('/stats/summary', protect, async (req, res) => {
+router.get('/stats/summary', protect, identifyTenant, async (req, res) => {
   try {
     const { startDate, endDate } = req.query;
     
@@ -414,13 +424,14 @@ router.get('/stats/summary', protect, async (req, res) => {
       };
     }
     
-    const totalSales = await Sale.countDocuments(query);
-    const totalRevenue = await Sale.aggregate([
+    const SaleModel = req.tenantModels?.Sale || Sale;
+    const totalSales = await SaleModel.countDocuments(query);
+    const totalRevenue = await SaleModel.aggregate([
       { $match: query },
       { $group: { _id: null, total: { $sum: '$total' } } }
     ]);
     
-    const salesByStatus = await Sale.aggregate([
+    const salesByStatus = await SaleModel.aggregate([
       { $match: query },
       { $group: { _id: '$paymentStatus', count: { $sum: 1 } } }
     ]);
@@ -431,8 +442,254 @@ router.get('/stats/summary', protect, async (req, res) => {
       salesByStatus
     });
   } catch (error) {
-    console.error('Error al obtener estadísticas:', error);
     res.status(500).json({ message: 'Error en el servidor' });
+  }
+});
+
+// @desc    Agregar pago parcial a una venta
+// @route   POST /api/sales/:id/payments
+// @access  Private
+router.post('/:id/payments', protect, identifyTenant, async (req, res) => {
+  try {
+    const { amount, paymentMethod, bankAccount, notes } = req.body;
+    
+    if (!amount || amount <= 0) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'El monto del pago debe ser mayor a 0' 
+      });
+    }
+    
+    const SaleModel = req.tenantModels?.Sale || Sale;
+    const sale = await SaleModel.findById(req.params.id);
+    if (!sale) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Venta no encontrada' 
+      });
+    }
+    
+    // Verificar que el pago no exceda el monto restante
+    if (amount > sale.remainingAmount) {
+      return res.status(400).json({ 
+        success: false,
+        message: `El monto del pago (${amount}) excede el monto restante (${sale.remainingAmount})` 
+      });
+    }
+    
+    // Agregar el pago parcial
+    const newPayment = {
+      amount,
+      paymentMethod,
+      bankAccount: bankAccount || null,
+      paymentDate: new Date(),
+      notes: notes || '',
+      createdBy: req.user.id
+    };
+    
+    sale.partialPayments.push(newPayment);
+    
+    // Si es el primer pago, actualizar el método de pago principal de la venta
+    if (sale.partialPayments.length === 1) {
+      sale.paymentMethod = paymentMethod;
+      sale.bankAccount = bankAccount || null;
+    }
+    
+    // Actualizar saldo de la cuenta bancaria si se especifica
+    if (bankAccount && paymentMethod !== 'efectivo') {
+      try {
+        
+        const BankModel = req.tenantModels?.Bank || Bank;
+        const bank = await BankModel.findById(bankAccount);
+        if (bank) {
+          const previousBalance = bank.currentBalance;
+          const newBalance = previousBalance + amount;
+          
+          
+          // Aumentar el saldo de la cuenta bancaria
+          bank.currentBalance = newBalance;
+          await bank.save();
+          
+          
+          // Registrar la transacción bancaria
+          const transactionData = {
+            bank: bankAccount,
+            type: 'payment',
+            amount,
+            previousBalance,
+            newBalance,
+            description: `Pago de venta #${sale.invoiceNumber}`,
+            reference: sale._id,
+            referenceType: 'sale',
+            createdBy: req.user.id,
+            tenant: req.tenant?._id
+          };
+          
+          
+          const BankTransactionModel = req.tenantModels?.BankTransaction || BankTransaction;
+          const transaction = await BankTransactionModel.create(transactionData);
+        } else {
+        }
+      } catch (bankError) {
+        // No fallar la operación si hay error con el banco
+      }
+    }
+    
+    await sale.save();
+    
+    // Poblar las referencias para devolver datos completos
+    const populatedSale = await SaleModel.findById(sale._id)
+      .populate('client', 'name email phone')
+      .populate('items.product', 'name sku price')
+      .populate('items.batch', 'batchNumber expirationDate')
+      .populate('partialPayments.bankAccount', 'name accountNumber type')
+      .populate('partialPayments.createdBy', 'name email')
+      .populate('bankAccount', 'name accountNumber type')
+      .populate('createdBy', 'name email')
+      .lean();
+    
+    res.json({
+      success: true,
+      data: populatedSale,
+      message: 'Pago parcial registrado correctamente'
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: 'Error en el servidor' 
+    });
+  }
+});
+
+// @desc    Obtener pagos parciales de una venta
+// @route   GET /api/sales/:id/payments
+// @access  Private
+router.get('/:id/payments', protect, identifyTenant, async (req, res) => {
+  try {
+    const SaleModel = req.tenantModels?.Sale || Sale;
+    const sale = await SaleModel.findById(req.params.id)
+      .populate('partialPayments.bankAccount', 'name accountNumber type')
+      .populate('partialPayments.createdBy', 'name email')
+      .select('partialPayments paidAmount remainingAmount total paymentStatus');
+    
+    if (!sale) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Venta no encontrada' 
+      });
+    }
+    
+    res.json({
+      success: true,
+      data: {
+        payments: sale.partialPayments,
+        paidAmount: sale.paidAmount,
+        remainingAmount: sale.remainingAmount,
+        total: sale.total,
+        paymentStatus: sale.paymentStatus
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: 'Error en el servidor' 
+    });
+  }
+});
+
+// @desc    Eliminar un pago parcial
+// @route   DELETE /api/sales/:id/payments/:paymentId
+// @access  Private (Manager)
+router.delete('/:id/payments/:paymentId', protect, identifyTenant, manager, async (req, res) => {
+  try {
+    const SaleModel = req.tenantModels?.Sale || Sale;
+    const sale = await SaleModel.findById(req.params.id);
+    if (!sale) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Venta no encontrada' 
+      });
+    }
+    
+    const paymentIndex = sale.partialPayments.findIndex(
+      payment => payment._id.toString() === req.params.paymentId
+    );
+    
+    if (paymentIndex === -1) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Pago no encontrado' 
+      });
+    }
+    
+    // Obtener el pago antes de eliminarlo para restaurar el saldo bancario
+    const paymentToDelete = sale.partialPayments[paymentIndex];
+    
+    // Restaurar saldo de la cuenta bancaria si el pago tenía una cuenta bancaria
+    if (paymentToDelete.bankAccount && paymentToDelete.paymentMethod !== 'efectivo') {
+      try {
+        
+        const BankModel = req.tenantModels?.Bank || Bank;
+        const bank = await BankModel.findById(paymentToDelete.bankAccount);
+        if (bank) {
+          const previousBalance = bank.currentBalance;
+          const newBalance = previousBalance - paymentToDelete.amount;
+          
+          
+          // Restar el monto del saldo de la cuenta bancaria
+          bank.currentBalance = newBalance;
+          await bank.save();
+          
+          
+          // Registrar la transacción de reversión
+          const refundData = {
+            bank: paymentToDelete.bankAccount,
+            type: 'refund',
+            amount: paymentToDelete.amount,
+            previousBalance,
+            newBalance,
+            description: `Reversión de pago de venta #${sale.invoiceNumber}`,
+            reference: sale._id,
+            referenceType: 'sale',
+            createdBy: req.user.id,
+            tenant: req.tenant?._id
+          };
+          
+          
+          const BankTransactionModel = req.tenantModels?.BankTransaction || BankTransaction;
+          const refundTransaction = await BankTransactionModel.create(refundData);
+        } else {
+        }
+      } catch (bankError) {
+        // No fallar la operación si hay error con el banco
+      }
+    }
+    
+    // Eliminar el pago
+    sale.partialPayments.splice(paymentIndex, 1);
+    await sale.save();
+    
+    // Poblar las referencias para devolver datos completos
+    const populatedSale = await SaleModel.findById(sale._id)
+      .populate('client', 'name email phone')
+      .populate('items.product', 'name sku price')
+      .populate('items.batch', 'batchNumber expirationDate')
+      .populate('partialPayments.bankAccount', 'name accountNumber type')
+      .populate('partialPayments.createdBy', 'name email')
+      .populate('bankAccount', 'name accountNumber type')
+      .populate('createdBy', 'name email')
+      .lean();
+    
+    res.json({
+      success: true,
+      data: populatedSale,
+      message: 'Pago eliminado correctamente'
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      success: false,
+      message: 'Error en el servidor' 
+    });
   }
 });
 

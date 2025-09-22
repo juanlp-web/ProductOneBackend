@@ -40,19 +40,16 @@ class DatabaseManager {
         serverSelectionTimeoutMS: 10000, // Aumentar timeout
         socketTimeoutMS: 45000,
         bufferCommands: true, // Habilitar buffering para evitar errores
-        bufferMaxEntries: 0,
         connectTimeoutMS: 10000,
       });
 
       // Manejar eventos de la conexión
       connection.on('error', (err) => {
-        console.error(`Error en conexión del tenant ${tenant.subdomain}:`, err);
         this.connections.delete(tenantId);
         this.models.delete(tenantId);
       });
 
       connection.on('disconnected', () => {
-        console.log(`Tenant ${tenant.subdomain} desconectado`);
         this.connections.delete(tenantId);
         this.models.delete(tenantId);
       });
@@ -60,11 +57,9 @@ class DatabaseManager {
       // Guardar conexión en cache
       this.connections.set(tenantId, connection);
       
-      console.log(`✅ Conexión establecida para tenant: ${tenant.subdomain} -> ${databaseName}`);
       return connection;
 
     } catch (error) {
-      console.error(`❌ Error al conectar tenant ${tenant.subdomain}:`, error);
       throw new Error(`No se pudo conectar a la base de datos del tenant: ${error.message}`);
     }
   }
@@ -94,6 +89,9 @@ class DatabaseManager {
       const { default: Batch } = await import('../models/Batch.js');
       const { default: Sale } = await import('../models/Sale.js');
       const { default: Purchase } = await import('../models/Purchase.js');
+      const { default: Package } = await import('../models/Package.js');
+      const { default: Bank } = await import('../models/Bank.js');
+      const { default: BankTransaction } = await import('../models/BankTransaction.js');
 
       // Crear modelos específicos para este tenant usando los esquemas existentes
       const models = {
@@ -105,6 +103,9 @@ class DatabaseManager {
         Batch: connection.model('Batch', Batch.schema),
         Sale: connection.model('Sale', Sale.schema),
         Purchase: connection.model('Purchase', Purchase.schema),
+        Package: connection.model('Package', Package.schema),
+        Bank: connection.model('Bank', Bank.schema),
+        BankTransaction: connection.model('BankTransaction', BankTransaction.schema),
       };
 
       // Guardar modelos en cache
@@ -113,7 +114,6 @@ class DatabaseManager {
       return models;
 
     } catch (error) {
-      console.error(`Error al obtener modelos para tenant ${tenant.subdomain}:`, error);
       throw new Error(`No se pudieron cargar los modelos del tenant: ${error.message}`);
     }
   }
@@ -128,7 +128,6 @@ class DatabaseManager {
       await connection.close();
       this.connections.delete(tenantId);
       this.models.delete(tenantId);
-      console.log(`🔄 Conexión cerrada para tenant: ${tenantId}`);
     }
   }
 
@@ -141,7 +140,6 @@ class DatabaseManager {
     for (const [tenantId, connection] of this.connections) {
       closePromises.push(
         connection.close().then(() => {
-          console.log(`🔄 Conexión cerrada para tenant: ${tenantId}`);
         })
       );
     }
@@ -149,7 +147,6 @@ class DatabaseManager {
     await Promise.all(closePromises);
     this.connections.clear();
     this.models.clear();
-    console.log('🔄 Todas las conexiones de tenants cerradas');
   }
 
   /**
@@ -180,7 +177,6 @@ class DatabaseManager {
       if (connection.readyState !== 1) { // No conectada
         this.connections.delete(tenantId);
         this.models.delete(tenantId);
-        console.log(`🧹 Limpiada conexión inactiva para tenant: ${tenantId}`);
       }
     }
   }
@@ -194,18 +190,15 @@ class DatabaseManager {
       const models = await this.getTenantModels(tenant);
       
       // Crear índices y datos iniciales si es necesario
-      console.log(`🚀 Base de datos inicializada para tenant: ${tenant.subdomain}`);
       
       // Crear usuario administrador inicial si no existe
       const adminExists = await models.User.findOne({ role: 'admin' });
       if (!adminExists && tenant.adminUser) {
         // El usuario admin ya debe existir, solo asociarlo al tenant
-        console.log(`👤 Usuario admin asociado al tenant: ${tenant.subdomain}`);
       }
 
       return true;
     } catch (error) {
-      console.error(`Error al inicializar BD para tenant ${tenant.subdomain}:`, error);
       throw error;
     }
   }

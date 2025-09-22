@@ -23,7 +23,6 @@ router.get('/', protect, async (req, res) => {
       data: user
     });
   } catch (error) {
-    console.error('Error al obtener perfil:', error);
     res.status(500).json({
       success: false,
       message: 'Error al obtener perfil',
@@ -81,7 +80,6 @@ router.put('/', protect, async (req, res) => {
       data: updatedUser
     });
   } catch (error) {
-    console.error('Error al actualizar perfil:', error);
     res.status(500).json({
       success: false,
       message: 'Error al actualizar perfil',
@@ -138,7 +136,6 @@ router.put('/change-password', protect, async (req, res) => {
       message: 'Contraseña cambiada correctamente'
     });
   } catch (error) {
-    console.error('Error al cambiar contraseña:', error);
     res.status(500).json({
       success: false,
       message: 'Error al cambiar contraseña',
@@ -169,7 +166,6 @@ router.get('/login-history', protect, async (req, res) => {
       data: sortedHistory
     });
   } catch (error) {
-    console.error('Error al obtener historial de accesos:', error);
     res.status(500).json({
       success: false,
       message: 'Error al obtener historial de accesos',
@@ -201,7 +197,6 @@ router.put('/notifications', protect, async (req, res) => {
       data: updatedUser
     });
   } catch (error) {
-    console.error('Error al actualizar notificaciones:', error);
     res.status(500).json({
       success: false,
       message: 'Error al actualizar notificaciones',
@@ -236,7 +231,6 @@ router.put('/theme', protect, async (req, res) => {
       data: updatedUser
     });
   } catch (error) {
-    console.error('Error al actualizar tema:', error);
     res.status(500).json({
       success: false,
       message: 'Error al actualizar tema',

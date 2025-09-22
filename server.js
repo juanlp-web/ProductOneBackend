@@ -17,6 +17,12 @@ import dashboardRoutes from './routes/dashboard.js';
 import profileRoutes from './routes/profile.js';
 import tenantRoutes from './routes/tenants.js';
 import configRoutes from './routes/config.js';
+import bankRoutes from './routes/banks.js';
+import bankTransactionRoutes from './routes/bankTransactions.js';
+import accountRoutes from './routes/accounts.js';
+import accountConfigRoutes from './routes/accountConfigs.js';
+import adminRoutes from './routes/admin.js';
+import importRoutes from './routes/import.js';
 
 // Middleware de tenant y salud
 import { identifyTenant, logTenantActivity } from './middleware/tenant.js';
@@ -49,9 +55,7 @@ const startServer = async () => {
     app.use(identifyTenant);
     app.use(logTenantActivity);
     
-    console.log('✅ Middleware de tenant aplicado después de conexión DB');
   } catch (error) {
-    console.error('❌ Error conectando a MongoDB, no se aplicará middleware de tenant');
     throw error; // Re-lanzar error para que el servidor no inicie si no hay DB
   }
 };
@@ -72,6 +76,12 @@ app.use('/api/packages', packageRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/config', configRoutes);
+app.use('/api/banks', bankRoutes);
+app.use('/api/bank-transactions', bankTransactionRoutes);
+app.use('/api/accounts', accountRoutes);
+app.use('/api/account-configs', accountConfigRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/import', importRoutes);
 
 // Ruta de prueba
 app.get('/', (req, res) => {
@@ -88,7 +98,8 @@ app.get('/', (req, res) => {
       batches: '/api/batches',
       inventory: '/api/inventory',
       sales: '/api/sales',
-      purchases: '/api/purchases'
+      purchases: '/api/purchases',
+      banks: '/api/banks'
     }
   });
 });
@@ -97,7 +108,6 @@ app.get('/', (req, res) => {
 
 // Middleware de manejo de errores
 app.use((err, req, res, next) => {
-  console.error(err.stack);
   res.status(500).json({ 
     message: 'Algo salió mal en el servidor',
     error: process.env.NODE_ENV === 'development' ? err.message : {}
@@ -114,13 +124,9 @@ const initializeServer = async () => {
   await startServer();
   
   app.listen(PORT, () => {
-    console.log(`🚀 Servidor corriendo en puerto ${PORT}`);
-    console.log(`📱 Frontend: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
-    console.log(`🔗 API: http://localhost:${PORT}`);
   });
 };
 
 initializeServer().catch(error => {
-  console.error('❌ Error inicializando servidor:', error);
   process.exit(1);
 });
