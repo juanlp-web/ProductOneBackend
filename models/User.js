@@ -111,9 +111,7 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Índices
-userSchema.index({ email: 1 });
-userSchema.index({ username: 1 });
+// Índices (email y username ya tienen índice por unique: true)
 userSchema.index({ role: 1 });
 userSchema.index({ tenantId: 1 });
 userSchema.index({ tenantRole: 1 });

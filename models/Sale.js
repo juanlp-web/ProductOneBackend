@@ -210,7 +210,7 @@ saleSchema.pre('validate', function(next) {
 });
 
 // Índices para mejorar el rendimiento
-saleSchema.index({ invoiceNumber: 1 });
+// invoiceNumber ya tiene índice por unique: true
 saleSchema.index({ client: 1 });
 saleSchema.index({ saleDate: -1 });
 saleSchema.index({ paymentStatus: 1 });

@@ -186,8 +186,7 @@ const tenantSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Índices
-tenantSchema.index({ subdomain: 1 });
+// Índices (subdomain ya tiene índice por unique: true)
 tenantSchema.index({ companyEmail: 1 });
 tenantSchema.index({ status: 1 });
 tenantSchema.index({ plan: 1 });

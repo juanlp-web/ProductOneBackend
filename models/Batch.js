@@ -191,7 +191,7 @@ batchSchema.statics.getStats = async function() {
 };
 
 // Índices para mejorar el rendimiento
-batchSchema.index({ batchNumber: 1 });
+// batchNumber ya tiene índice por unique: true
 batchSchema.index({ product: 1 });
 batchSchema.index({ recipe: 1 });
 batchSchema.index({ status: 1 });

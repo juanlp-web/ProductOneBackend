@@ -38,8 +38,7 @@ const configSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Índices
-configSchema.index({ key: 1 });
+// Índices (key ya tiene índice por unique: true)
 configSchema.index({ isActive: 1 });
 
 // Método estático para obtener configuración por clave

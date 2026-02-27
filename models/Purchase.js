@@ -226,7 +226,7 @@ const purchaseSchema = new mongoose.Schema({
 });
 
 // Índices para mejorar el rendimiento de las consultas
-purchaseSchema.index({ purchaseNumber: 1 });
+// purchaseNumber ya tiene índice por unique: true
 purchaseSchema.index({ supplier: 1 });
 purchaseSchema.index({ status: 1 });
 purchaseSchema.index({ orderDate: -1 });

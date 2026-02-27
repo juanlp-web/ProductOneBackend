@@ -27,7 +27,8 @@ const connectDB = async () => {
     });
 
   } catch (error) {
-    process.exit(1);
+    console.error('MongoDB connection error:', error.message);
+    throw error;
   }
 };
 
@@ -42,10 +43,9 @@ process.on('SIGINT', async () => {
   process.exit(0);
 });
 
-// Manejar errores de conexión
+// Manejar errores de conexión (solo log, no crashear - evita crash por índices duplicados)
 mongoose.connection.on('error', (err) => {
-  // Error en la conexión
-  process.exit(1);
+  console.error('MongoDB connection error event:', err.message);
 });
 
 export default connectDB;

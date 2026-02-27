@@ -195,7 +195,7 @@ packageSchema.methods.restoreStock = async function() {
 };
 
 // Índices para mejorar el rendimiento
-packageSchema.index({ sku: 1 });
+// sku ya tiene índice por unique: true
 packageSchema.index({ name: 1 });
 packageSchema.index({ category: 1 });
 packageSchema.index({ isActive: 1 });
