@@ -9,7 +9,7 @@ dotenv.config();
 const initializeDatabase = async () => {
   try {
     // Conectar a MongoDB
-    await mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://productonex:XjAF5GpGROZK3aPm@cluster0.imw9vyz.mongodb.net/productonex');
+    await mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://productonex:productonex@141994@cluster0.a5mpf97.mongodb.net/productonex');
 
     // Verificar si ya existe un usuario admin
     const adminExists = await User.findOne({ role: 'admin' });
