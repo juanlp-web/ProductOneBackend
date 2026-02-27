@@ -11,6 +11,7 @@ const initializeDatabase = async () => {
     // Conectar a MongoDB
     await mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://productonex:productonex@141994@cluster0.a5mpf97.mongodb.net/productonex');
 
+    
     // Verificar si ya existe un usuario admin
     const adminExists = await User.findOne({ role: 'admin' });
     
