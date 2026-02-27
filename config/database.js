@@ -27,8 +27,7 @@ const connectDB = async () => {
     });
 
   } catch (error) {
-    console.error('MongoDB connection error:', error.message);
-    throw error; // Lanzar para que el caller decida (no process.exit para permitir que el servidor inicie)
+    process.exit(1);
   }
 };
 

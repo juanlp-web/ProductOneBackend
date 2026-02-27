@@ -46,15 +46,17 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/health', dbHealthCheck);
 app.use(checkDBHealth);
 
-// Conectar a MongoDB (en segundo plano, no bloquea el inicio del servidor)
-const setupDatabase = async () => {
+// Conectar a MongoDB y esperar a que esté listo
+const startServer = async () => {
   try {
     await connectDB();
+    
+    // Solo aplicar middleware de tenant después de conectar a MongoDB
     app.use(identifyTenant);
     app.use(logTenantActivity);
+    
   } catch (error) {
-    console.error('Error conectando a MongoDB:', error.message);
-    // El servidor sigue corriendo; checkDBHealth responderá 503 en rutas que requieren DB
+    throw error; // Re-lanzar error para que el servidor no inicie si no hay DB
   }
 };
 
@@ -117,9 +119,14 @@ app.use('*', (req, res) => {
   res.status(404).json({ message: 'Ruta no encontrada' });
 });
 
-// IMPORTANTE para Render: iniciar app.listen() PRIMERO para que detecte el puerto
-// La conexión a MongoDB se hace en segundo plano
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Servidor escuchando en puerto ${PORT}`);
-  setupDatabase();
+// Iniciar servidor después de configurar todo
+const initializeServer = async () => {
+  await startServer();
+  
+  app.listen(PORT, () => {
+  });
+};
+
+initializeServer().catch(error => {
+  process.exit(1);
 });
